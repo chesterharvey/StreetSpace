@@ -57,8 +57,8 @@ def extend_line(linestring, extend_dist, ends='both'):
     Returns
     ----------
     Shapely LineString
-    
     """
+    
     if ends == 'both':
         endpoints = [sh.geometry.Point(linestring.coords[0]),
                      sh.geometry.Point(linestring.coords[-1])]
