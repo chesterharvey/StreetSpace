@@ -7,5 +7,7 @@
 from .core import *
 from .network import *
 from .geometry import *
+from .odrive import *
+from .utils import *
 
 __version__ = '0.1.0'
