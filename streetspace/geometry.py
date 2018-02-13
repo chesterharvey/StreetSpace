@@ -85,6 +85,40 @@ def extend_line(linestring, extend_dist, ends='both'):
     # Merge new segments with existing linestring:
     return linemerge([linestring] + new_segments)
 
+
+def shortenLine(linestring, shorten_dist, ends = 'both'):
+    """
+    Shorten a Shapely Linestring at either end.
+
+    Parameters
+    ----------
+    linestring: Shapely LineString
+        line to extent
+
+    extend_dist: float
+        distance to extent in linestring units
+
+    ends: str
+        'both' = extends both ends (default)
+        'start' = extends from the start of the linestring
+        'end' = extends from the end of the linestring
+
+    Returns
+    ----------
+    Shapely LineString
+    """
+    if ends == 'both':
+        start = linestring.interpolate(shorten_dist)
+        end = linestring.interpolate(linestring.length - shorten_dist)
+    elif ends == 'start':
+        start = linestring.interpolate(shorten_dist)
+        end = endPoints(linestring)[1]
+    elif ends == 'end':
+        start = endPoints(linestring)[0]
+        end = linestring.interpolate(linestring.length - shorten_dist)
+    return LineString([start,end])
+
+
 def closest_point_among_lines(
     search_pnt, lines, lines_sidx=None, search_dist=None):
     """
