@@ -16,8 +16,9 @@ from math import radians, cos, sin, asin, sqrt
 def vertices_to_points(geometry):
     """Convert vertices of a Shapely LineString or Polygon into points.
 
-    Args:
-        geometry (Shapely LineString or Polygon)
+    Parameters
+    ----------
+    geometry : Shapely LineString or Polygon) :class:`shapely.geometry.linestring.LineString`
    
     Returns:
         list: List of Shapely Points
