@@ -4,22 +4,6 @@ StreetSpace package
 Submodules
 ----------
 
-streetspace\.core module
-------------------------
-
-.. automodule:: streetspace.core
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-streetspace\.draw module
-------------------------
-
-.. automodule:: streetspace.draw
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 streetspace\.geometry module
 ----------------------------
 
@@ -27,6 +11,7 @@ streetspace\.geometry module
     :members:
     :undoc-members:
     :show-inheritance:
+
 
 streetspace\.network module
 ---------------------------
@@ -36,13 +21,6 @@ streetspace\.network module
     :undoc-members:
     :show-inheritance:
 
-streetspace\.odrive module
---------------------------
-
-.. automodule:: streetspace.odrive
-    :members:
-    :undoc-members:
-    :show-inheritance:
 
 streetspace\.utils module
 -------------------------
