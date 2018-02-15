@@ -1,4 +1,4 @@
-streetspace package
+StreetSpace package
 ===================
 
 Submodules

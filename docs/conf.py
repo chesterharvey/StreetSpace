@@ -84,11 +84,12 @@ pygments_style = 'sphinx'
 todo_include_todos = False
 
 intersphinx_mapping = {
-    'python': ('https://docs.python.org', None),
+    'python': ('https://docs.python.org/3/', None),
     'pandas': ('https://pandas.pydata.org/pandas-docs/stable/', None),
-    'geopandas': ('http://geopandas.org/index.html', None),
+    'geopandas': ('http://geopandas.readthedocs.io/en/latest/', None),
     'networkx': ('https://networkx.github.io/documentation/stable/', None),
-    'numpy': ('https://docs.scipy.org/doc/numpy/', None)
+    'numpy': ('https://docs.scipy.org/doc/numpy/', None),
+    'shapely': ('https://toblerity.org/shapely/', None)
 }
 
 # -- Options for HTML output ----------------------------------------------

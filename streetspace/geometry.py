@@ -18,7 +18,8 @@ def vertices_to_points(geometry):
 
     Parameters
     ----------
-    geometry : Shapely LineString or Polygon) :class:`shapely.geometry.linestring.LineString`
+    geometry : :class:`shapely.LineString`
+        description
    
     Returns:
         list: List of Shapely Points
@@ -309,27 +310,33 @@ def list_sindex(geom_list):
     return idx
 
 
-def points_along_lines(linestrings, spacing, centered = False):
-    """Create equally spaced points along Shapely LineStrings.
+def points_along_line(linestring, spacing, centered = False):
+    """Create equally spaced points along a Shapely LineString.
 
-    Args:
-        linestrings (list or Shapely LineString): if list, must include only
-            Shapely LineStrings
-        spacing (float): spacing for points along the LineString(s)
-        centered : bool or str
-            False (default) = not centered; points are spaced evenly from the
-                start of the LineString 
-            'Point' = a point is located at the LineString midpoint
-            'Space' = a gap between points is centered on the LinesString
-                midpoint
+    If a list of LineStrings is entered, the function will construct points
+    along each LineString but will return all points together in the same
+    list.
 
-    Returns:
-        list: List of Shapely Points
+    Parameters
+    ----------
+    linestring : :class:`shapely.geometry.LineString` or :obj:`list`
+        If list, must contain only :class:`shapely.geometry.LineString` objects.
+    spacing : :obj:`float`
+        Spacing for points along the `linestring`.
+    centered : :obj:`bool` or :obj:`str`, optional, default = ``False``
+        * ``False``: Points/Spaces aligned with the start of the `linestring`.
+        * ``'Point'``: Points aligned with the midpoint of the `linestring`.
+        * ``'Space'``: Spaces aligned with the midpoint of the `linestring`.
+
+    Returns
+    ----------
+    :obj:`list`
+        List of :class:`shapely.geometry.Point` objects.
     """
-    if isinstance(linestrings, LineString):
-        linestrings = [linestrings] # If only one LineString, make into list
+    if isinstance(linestring, LineString):
+        linestring = [linestring] # If only one LineString, make into list
     all_points = []
-    for l, line in enumerate(linestrings):
+    for l, line in enumerate(linestring):
         points = []
         length = line.length
         for p in range(int(ceil(length/spacing))):
@@ -352,21 +359,21 @@ def points_along_lines(linestrings, spacing, centered = False):
 
 
 def azimuth(linestring, degrees=True):
-    """
-    Calculate azimuth between endpoints of a Shapely LineString.
+    """Calculate azimuth between endpoints of a line.
 
     Parameters
     ----------
-    linestring : Shapely LineString
+    linestring : :class:`shapely.geometry.LineString`
+        Azimuth will be calculated between the ``linestring`` endpoints.
 
-    degrees : bool
-        True (default) = azimuth calculated in degrees
-        False = azimuth calcualted in radians
+    degrees : :obj:`bool`
+        ``True`` for azimuth in degrees.
+        ``False`` for azimuth in radians.
 
     Returns
     ----------
-    float
-
+    :obj:`float`
+        Azimuth between the endpoints of the ``linestring``.
     """ 
     u = endpoints(linestring)[0]
     v = endpoints(linestring)[1]
@@ -695,29 +702,32 @@ def insert_node(G, u, v, node_point, node_name, key = None):
         return G
 
 
-def split_gdf_Lines(gdf, segment_length, centered = False, min_length = 0):
-    """Split linestrings in a geodataframe into equal-length peices.
+def split_gdf_lines(gdf, segment_length, centered = False, min_length = 0):
+    """Split LineStrings in a GeoDataFrame into equal-length peices.
 
     Attributes in accompanying columns are copied to all children of each
     parent record.
 
-    Args:
-        gdf (GeoPandas GeoDataFrame): geodataframe with LineString geometry
-        segment_length (float): length of segments to create
-        centered : bool or str
-            False (default) = not centered; points are spaced evenly from the
-                start of the LineString 
-            'Point' = a point is located at the LineString midpoint
-            'Space' = a gap between points is centered on the LinesString
+    Parameters
+    ----------
+    gdf : :class:`geopandas.GeoDataFrame`
+        Geometry type must be :class:`shapely.geometry.LineString`
+    segment_length: :obj:`float`
+        Length of segments to create.
+    centered : :obj:`bool` or :obj:`str`, optional, default = ``False``
+        - ``False`` : Not centered; points are spaced evenly from the start of each LineString 
+        - ``'Point'`` : A point is located at each LineString midpoint
+        - ``'Space'`` : A gap between points is centered on each LinesString
 
-    Returns:
-        GeoPandas GeoDataFrame
+    Returns
+    ----------
+    :class:`geopandas.GeoDataFrame`
     """
     # initiate new dataframe to hold segments
     segments = gpd.GeoDataFrame(data=None, columns=gdf.columns, 
                                 geometry = 'geometry', crs=gdf.crs)
     for i, segment in gdf.iterrows():
-        points = points_along_lines(segment['geometry'], 
+        points = points_along_line(segment['geometry'], 
                                     segment_length, 
                                     centered = centered)
         points = points[1:] # exclude the starting point
