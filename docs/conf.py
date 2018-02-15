@@ -89,7 +89,8 @@ intersphinx_mapping = {
     'geopandas': ('http://geopandas.readthedocs.io/en/latest/', None),
     'networkx': ('https://networkx.github.io/documentation/stable/', None),
     'numpy': ('https://docs.scipy.org/doc/numpy/', None),
-    'shapely': ('https://toblerity.org/shapely/', None)
+    'shapely': ('https://toblerity.org/shapely/', None),
+    'rtree': ('http://toblerity.org/rtree', None)
 }
 
 # -- Options for HTML output ----------------------------------------------

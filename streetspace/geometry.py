@@ -1,8 +1,8 @@
-""" Functions to manipulate shapely geometries."""
+"""Functions to manipulate Shapely geometries."""
 
 ##############################################################################
-# Module: core.py
-# Package: streetspace - measure and analyze streetscapes and street networks
+# Module: geometry.py
+# Description: Functions to manipulate Shapely geometries.
 # License: MIT
 ##############################################################################
 
@@ -18,11 +18,13 @@ def vertices_to_points(geometry):
 
     Parameters
     ----------
-    geometry : :class:`shapely.LineString`
-        description
+    geometry : :class:`shapely.geometry.LineString`
+        LineString whose vertices will be converted to Points.
    
-    Returns:
-        list: List of Shapely Points
+    Returns
+    -------
+    :obj:`list`
+        List of :class:`shapely.geometry.Point`.
     """
     if isinstance(geometry, Polygon):
         xs, ys = geometry.exterior.coords.xy
@@ -35,20 +37,25 @@ def vertices_to_points(geometry):
 
 
 def extend_line(linestring, extend_dist, ends='both'):
-    """Extend a Shapely Linestring at either end.
+    """Extend a LineString at either end.
 
     Extensions will follow the same azimuth as the endmost segment(s).
 
-    Args:
-        linestring (Shapely LineString): line to extend
-        extend_dist (float): distance to extend
-        ends (str): specifies which end(s) to extend from
-            'both' (default) = extends both ends 
-            'start' = extends from the start of the LineString
-            'end' = extends from the end of the LineString
+    Parameters
+    ----------
+    linestring : :class:`shapely.geometry.LineString`
+        LineString to extend
+    extend_dist : :obj:`float`
+        Distance to extend
+    ends : :obj:`str`, optional, default = ``'both'``
+        * ``'both'`` : Extend from both ends
+        * ``'start'`` : Extend from start only
+        * ``'end'`` : Extend from end only
     
-    Returns:
-        Shapely LineString
+    Returns
+    -------
+    :class:`shapely.geometry.LineString`
+        Extended LineString
     """
     
     if ends == 'both':
@@ -79,25 +86,23 @@ def extend_line(linestring, extend_dist, ends='both'):
 
 
 def shorten_line(linestring, shorten_dist, ends = 'both'):
-    """
-    Shorten a Shapely Linestring at either end.
+    """Shorten a LineString at either end.
 
     Parameters
     ----------
-    linestring : Shapely LineString
-        LineString to extent
-
-    shorten_dist : float
-        distance to shorten in LineString units
-
-    ends : str
-        'both' = extends both ends (default)
-        'start' = extends from the start of the LineString
-        'end' = extends from the end of the LineString
-
+    linestring : :class:`shapely.geometry.LineString`
+        LineString to extend
+    shorten_dist : :obj:`float`
+        Distance to shorten
+    ends : :obj:`str`, optional, default = ``'both'``
+        * ``'both'`` : Shorten from both ends
+        * ``'start'`` : Shorten from start only
+        * ``'end'`` : Shorten from end only
+    
     Returns
-    ----------
-    Shapely LineString
+    -------
+    :class:`shapely.geometry.LineString`
+        Shortened LineString
     """
     if ends == 'both':
         start = linestring.interpolate(shorten_dist)
@@ -112,24 +117,23 @@ def shorten_line(linestring, shorten_dist, ends = 'both'):
 
 
 def split_line_at_points(linestring, points):
-    """
-    Split a Shapely LineString into multiple segments defined by Shapely
-    Points along it.
+    """Split a LineString into segments defined by Points along it.
 
-    Adapted from: "https://stackoverflow.com/questions/34754777/shapely-split
+    Adapted from: https://stackoverflow.com/questions/34754777/shapely-split
     -linestrings-at-intersections-with-other-linestrings
 
     Parameters
     ----------
-    linestring : Shapely LineString
+    linestring : :class:`shapely.geometry.LineString`
         LineString to split
 
-    points : list
-        list of Shapely Points
+    points : :obj:`list`
+        Must contain :class:`shapely.geometry.Point`
 
     Returns
     ----------
-    list of Shapely LineStrings
+    :obj:`list`
+        Segments as :class:`shapely.geometry.LineString`
     """
 
     # get original coordinates of line
@@ -162,50 +166,44 @@ def split_line_at_points(linestring, points):
 
 
 def split_line_at_dists(linestring, dists):
-    """
-    Split a Shapely LineString into multiple segments defined by linear
-    distances along it.
+    """Split a LineString into segments defined by distances along it.
 
     Parameters
     ----------
-    linestring : Shapely LineString
+    linestring : :class:`shapely.geometry.LineString`
         LineString to split
 
-    dists : list
-        list of distances along LineString
+    dists : :obj:`list`
+        Must contain distances as :obj:`float`
 
     Returns
     ----------
-    list of Shapely LineStrings
+    :obj:`list`
+        Segments as :class:`shapely.geometry.LineString`
     """
-
     points = [linestring.interpolate(x) for x in dists]
     return split_line_at_points(linestring, points)
 
 
 def segment(linestring, u, v):
-    """
-    Retrieve a segment from a Shapely LineString based on two Shapely Points
-    along it.
+    """Extract a LineString segment defined by two Points along it.
 
     The order of u and v specifies the directionality of the returned
     LineString. Directionality is not inhereted from the original LineString.
 
     Parameters
     ----------
-    linestring : Shapely LineString
+    linestring : :class:`shapely.geometry.LineString`
         LineString from which to extract segment
-
-    u : Shapely Point
-        segment start
-
-    v : Shapely Point
-        segment end
+    u : :class:`shapely.geometry.Point`
+        Segment start point
+    v : :class:`shapely.geometry.Point`
+        Segment end point
 
     Returns
     ----------
-    Shapely LineString
-    
+    :class:`shapely.geometry.LineString`
+        Segment of `linestring`
     """
     segment = split_line_at_points(linestring, [u, v])[1]
     # See if the beginning of the segment aligns with u
@@ -217,64 +215,58 @@ def segment(linestring, u, v):
     return LineString(np.flip(np.array(segment), 0)) 
 
 
-def closest_point_among_lines(search_point, lines, lines_sindex=None, 
-    search_distance=None):
-    """
+def closest_point_along_lines(search_point, linestrings, search_distance=None
+    linestrings_sindex=None):
+    """Find the closest point along any of multiple LineStrings.
+
     TODO: Would it be easier for the input to this to be a geodataframe?
     That way the spatial index could be constructed inline, if necessary,
     as 'GeoDataFrame.sindex'.
 
-    Find the closest point along any of a list of Shapely LineStrings, with or
-    without spatial indexing
-
     Parameters
     ----------
-    search_point : Shapely Point
-        point from which to search
-
-    lines : list of Shapely LineStrings
-        lines to search to
-
-    lines_sindex : Rtree Index
-        spatial index for lines (default = None)
-
-    search_distance : float
-        distance to search from the search_point
-        (default = None; lines will be assessed no matter their distance)
-
-    Returns
-    ----------
-    int
-        index of the LineString along which the closest point is found
-    Shapely Point
-        closest point along that LineString
+    search_point : :class:`shapely.geometry.Point`
+        Point from which to search
+    linestrings : :obj:`list` 
+        LineStrings to search. Must contain :class:`shapely.geometry.LineString`
+    search_distance : :obj:`float`, optional
+        Distance to search from the `search_point`. If not specified,\
+        LineStrings will be searched no matter their distance from the\
+        `search_point`.
+    linestrings_sindex : :class:`rtree.index.Index`, optional
+        Spatial index for LineStrings in `linestrings`
     
+    Returns
+    -------
+    :obj:`int`
+        Index of the closest LineString
+    :class:`shapely.geometry.Point`
+        Closest Point along that LineString
     """
-   
-    # Get lines within the search distance based a specified spatial index:  
-    if lines_sidx != None:
+    # Get linestrings within the search distance based a specified spatial index:  
+    if linestrings_sindex != None:
         if search_dist == None:
-            raise ValueError('must specify search_dist if using spatial index')
+            raise ValueError('Must specify search_dist if using spatial index')
         # construct search area around point
         search_area = search_point.buffer(search_dist)
         # get nearby IDs
-        find_line_indices = [int(i) for i in
-                             lines_sidx.intersection(search_area.bounds)]
+        find_line_indices = [int(i) for i in 
+            linestrings_sindex.intersection(search_area.bounds)]
         # Get nearby geometries:
-        lines = [lines[i] for i in find_line_indices]
-    # Get lines within a specified search distance:
+        linestrings = [linestrings[i] for i in find_line_indices]
+    # Get linestrings within a specified search distance:
     elif search_dist != None:
         # construct search area around point
         search_area = search_point.buffer(search_dist)
-        # get lines intersecting search area
-        lines, find_line_indices = zip(*[(line, i) for i, line in 
-                                         enumerate(lines) if
-                                         line.intersects(search_area)])
-    # Otherwise, get all lines:
-    find_line_indices = [i for i, _ in enumerate(lines)]
-    # Calculate distances to all remaining lines
+        # get linestrings intersecting search area
+        linestrings, find_line_indices = zip(*[(line, i) for i, line in 
+                                             enumerate(linestrings) if
+                                             line.intersects(search_area)])
+    # Otherwise, get all linestrings:
+    find_line_indices = [i for i, _ in enumerate(linestrings)]
+    # Calculate distances to all remaining linestrings
     distances = []
-    for line in lines:
+    for line in linestrings:
         distances.append(search_point.distance(line))
     # Only return a closest point if there is a line within search distance:
     if len(distances) > 0:
@@ -282,7 +274,7 @@ def closest_point_among_lines(search_point, lines, lines_sindex=None,
         _, line_idx = min((distance, i) for (i, distance) in 
                               zip(find_line_indices, distances))
         # Find the nearest point along that line
-        search_line = lines[find_line_indices.index(line_idx)]
+        search_line = linestrings[find_line_indices.index(line_idx)]
         lin_ref = search_line.project(search_point)
         closest_point = search_line.interpolate(lin_ref)
         return line_idx, closest_point
@@ -290,27 +282,32 @@ def closest_point_among_lines(search_point, lines, lines_sindex=None,
         return None, None
 
 
-def list_sindex(geom_list):
-    """
-    Create an rtree spatial index for a list of Shapely geometries
+def list_sindex(geometries):
+    """Create a spatial index for a list of geometries.
 
     Parameters
     ----------
-    geom_list : list
-        list of Shapely geometries
+    geometries : :obj:`list`
+        List of :class:`shapely.geometry.Point`,\
+        :class:`shapely.geometry.MultiPoint`,\
+        :class:`shapely.geometry.LineString`,\
+        :class:`shapely.geometry.MultiLineString`,\
+        :class:`shapely.geometry.Polygon`,\
+        :class:`shapely.geometry.MultiPolygon` or\
+        :class:`shapely.geometry.collection.GeometryCollection`
 
     Returns
     ----------
-    rtree Index
+    :class:`rtree.index.Index`
+        Spatial index
     """
-
     idx = index.Index()
-    for i, geom in enumerate(geom_list):
+    for i, geom in enumerate(geometries):
         idx.insert(i, geom.bounds)
     return idx
 
 
-def points_along_line(linestring, spacing, centered = False):
+def spaced_points_along_line(linestring, spacing, centered = False):
     """Create equally spaced points along a Shapely LineString.
 
     If a list of LineStrings is entered, the function will construct points
@@ -359,16 +356,16 @@ def points_along_line(linestring, spacing, centered = False):
 
 
 def azimuth(linestring, degrees=True):
-    """Calculate azimuth between endpoints of a line.
+    """Calculate azimuth between endpoints of a LineString.
 
     Parameters
     ----------
     linestring : :class:`shapely.geometry.LineString`
-        Azimuth will be calculated between the ``linestring`` endpoints.
+        Azimuth will be calculated between ``linestring`` endpoints.
 
-    degrees : :obj:`bool`
-        ``True`` for azimuth in degrees.
-        ``False`` for azimuth in radians.
+    degrees : :obj:`bool`, optional, default = ``True``
+        * ``True`` for azimuth in degrees.
+        * ``False`` for azimuth in radians.
 
     Returns
     ----------
@@ -385,17 +382,17 @@ def azimuth(linestring, degrees=True):
 
 
 def split_line_at_vertices(linestring):
-    """
-    Split a Shapely LineString into segments at each of its vertices.
+    """Split a LineString into segments at each of its vertices.
 
     Parameters
     ----------
-    linestring : Shapely LineString
+    linestring : :class:`shapely.geometry.LineString`
+        LineString to split into segments
 
     Returns
     ----------
-    list of Shapely LineStrings
-
+    :obj:`list`
+        Contains a :class:`shapely.geometry.LineString` for each segment
     """
     coords = list(linestring.coords)
     n_lines = len(coords) - 1
@@ -403,40 +400,42 @@ def split_line_at_vertices(linestring):
 
 
 def endpoints(linestring):
-    """
-    Get endpoints of a Shapely LineString
+    """Get endpoints of a LineString.
 
     Parameters
     ----------
-    linestring : Shapely LineString
+    linestring : :class:`shapely.geometry.LineString`
+        LineString from which to extract endpoints
 
     Returns
     ----------
-    Shapely Point, Shapely Point
-        LineString start, LineString end
-
+    u : :class:`shapely.geometry.Point`
+        Start point
+    v : :class:`shapely.geometry.Point`
+        End point
     """
     u = Point(linestring.xy[0][0], linestring.xy[1][0])
     v = Point(linestring.xy[0][-1], linestring.xy[1][-1])
     return u, v 
 
 
-def azimuth_along_line(linestring, distance, degrees=True):
-    """
-    Get the aximuth of a Shapely LineString at a certain distance along it.
+def azimuth_at_distance(linestring, distance, degrees=True):
+    """Get the azimuth of a LineString at a certain distance along it.
 
     Parameters
     ----------
-    linestring : Shapely LineString
-
-    degrees: bool
-        True (default) = azimuth calculated in degrees
-        False = azimuth calcualted in radians
+    linestring : :class:`shapely.geometry.LineString`
+        LineString along which an azimuth will be calculated.
+    distance : :obj:`float`
+        Distance along `linestring` at which to calculate azimuth
+    degrees: :obj:`bool`, optional, default = ``False``
+        * ``True`` : Azimuth calculated in degrees
+        * ``False`` : Azimuth calcualted in radians
 
     Returns
-    ----------
-    float
-
+    -------
+    :obj:`float`
+        Azimuth of `linestring` at specified `distance`
     """
     segments = split_line_at_vertices(linestring)
     segment_lengths = [edge.length for edge in segments]
@@ -454,255 +453,52 @@ def azimuth_along_line(linestring, distance, degrees=True):
     return azimuth(segments[segment_ID], degrees=degrees)
 
 
-def line_by_azimuth(start_point, distance, azimuth, degrees=True):
-    """
-    Construct a Shapely LineString based on a starting point, distance, and 
-    azimuth.
+def line_by_azimuth(start_point, length, azimuth, degrees=True):
+    """Construct a LineString based on a start point, length, and azimuth.
 
     Parameters
     ----------
-    start_point : Shapely Point
-
-    distance : float
-
-    azimuth : float
-
-    degrees : bool
-        True (default) = azimuth specified in degrees
-        False = azimuth specified in radians
+    start_point : :class:`shapely.geometry.Point`
+        Line start point
+    length : :obj:`float`
+        Line length
+    azimuth : :obj:`float`
+        Line aximuth
+    degrees : :obj:`bool`, optional, default = ``True``
+        * ``True`` : Azimuth specified in degrees
+        * ``False`` : Azimuth specified in radians
 
     Returns
-    ----------
-    Shapely LineString
-
+    -------
+    :class:`shapely.geometry.LineString`
+        Constructed LineString
     """
     if degrees:
         azimuth = np.radians(azimuth)
-    vx = start_point.x + np.cos(azimuth) * distance
-    vy = start_point.y + np.sin(azimuth) * distance
+    vx = start_point.x + np.cos(azimuth) * length
+    vy = start_point.y + np.sin(azimuth) * length
     u = Point([start_point.x, start_point.y])
     v = Point([vx, vy])
     return LineString([u, v])
 
 
 def midpoint(linestring):
-    """
-    Get the midpoint of a Shapely LineString.
+    """Get the midpoint of a LineString.
 
     Parameters
     ----------
-    line : Shapely LineString
+    linestring : :class:`shapely.geometry.LineString`
+        LineString along which to identify midpoint
 
     Returns
-    ----------
-    Shapely Point
-
+    -------
+    :class:`shapely.geometry.Point`
+        Midpoint of `linestring`
     """
     return linestring.interpolate(linestring.length / 2)
 
 
-def closest_network_point(G, search_point, search_distance,
-    geometry='geometry', edges_sindex=None):
-    """
-    Find the closest point along the edges of a NetworkX graph with Shapely 
-    LineString geometry attributes in the same coordinate system.
-
-    Parameters
-    ----------
-    G : NetworkX graph
-
-    search_point : Shapely Point
-        point from which to search
-
-    search_distance : float
-        maximum distance to search from the search_point
-
-    geometry : str
-        (default = 'geometry')
-        attribute of edges containing Shapely LineString representations of
-        edge paths
-
-    edges_sindex : rtree Index 
-
-    Returns
-    ----------
-    u, v, key, point : tuple 
-
-    """
-    # extract edge indices and geometries from the graph
-    edge_IDs = [i for i in G.edges]
-    edge_geometries = [data[geometry] for _, _, data in G.edges(data=True)]
-    if edges_sindex is None:
-        line_index = [data[geometry] for _, _, data in G.edges(data=True)]
-
-    # find the closest point for connection along the network 
-    edge_ID, point = closestPointAmongLines(search_point, edge_geometries, 
-        lines_sindex=edges_sindex, search_distance=search_distance)
-
-    if edge_ID is not None:
-    
-        try: # will not return key if the network is DiGraph
-            # get the node_IDs for the edge with the closest point
-            u, v  = edge_IDs[edge_ID]
-            return u, v, point
-        except:
-            pass
-        
-        try: # will return key if network is MultiDiGraph
-            # get the node_IDs for the edge with the closest point
-            u, v, key  = edge_IDs[edge_ID]
-            return u, v, key, point
-        except:
-            return None, None, None, None
-    else:
-        return None, None, None, None
-
-
-def insert_node(G, u, v, node_point, node_name, key = None):
-    """
-    Insert a node along a NetworkX graph edge and split the edge's Shapely
-    LineString geometry where the node is inserted
-
-    Parameters
-    ----------
-    G : NetworkX graph
-
-    u : int
-        first node ID for edge along which node is being inserted
-
-    v : int
-        second node ID for edge along which node is being inserted
-
-    node_point : Shapely Point
-        geometric location for new node
-
-    node_name : str
-        name for new node
-
-    key : int
-        (default = None)
-        key for edge along which node is being inserted
-
-    Returns
-    ----------
-    G : NetworkX Graph 
-
-    """
-    # get attributes from the existing nodes
-    u_attrs = G.node[u]
-    v_attrs = G.node[v]
-    # assemble attributes for the new node
-    new_node_attrs = {'geometry': node_point, 
-                      'x': node_point.x,
-                      'y': node_point.y}
-    if key is None:
-        if G.has_edge(u, v): # examine the edge from u to v
-            # get attributes from existing edge
-            attrs = G.get_edge_data(u, v)
-            original_geom = attrs['geometry']
-            # delete existing edge
-            G.remove_edge(u, v)
-            # specify nodes for the new edges
-            G.add_node(u, **u_attrs)
-            G.add_node(v, **v_attrs)
-            G.add_node(node_name, **new_node_attrs)
-            # construct attributes for first new edge
-            attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
-                                        node_point)
-            attrs['length'] = attrs['geometry'].length
-            G.add_edge(u, node_name, **attrs)
-            # construct attributes for second new edge
-            attrs['geometry'] = segment(original_geom, 
-                                        node_point, 
-                                        endPoints(original_geom)[1])
-            attrs['length'] = attrs['geometry'].length
-            G.add_edge(node_name, v, **attrs)
-        if G.has_edge(v, u): # examine the edge from v to u
-            # get attributes from existing edge
-            attrs = G.get_edge_data(v, u)
-            original_geom = attrs['geometry']
-            # delete existing edge
-            G.remove_edge(v, u)
-            # specify nodes for the new edges
-            G.add_node(u, **u_attrs)
-            G.add_node(v, **v_attrs)
-            G.add_node(node_name, **new_node_attrs)
-            # construct attributes for first new edge
-            attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
-                                        node_point)
-            if 'length' in attrs:
-                attrs['length'] = attrs['geometry'].length
-            # specify new edge
-            G.add_edge(v, node_name, **attrs)
-            # construct attributes for second new edge
-            attrs['geometry'] = segment(original_geom, 
-                                        node_point, 
-                                        endPoints(original_geom)[1])
-            if 'length' in attrs:
-                attrs['length'] = attrs['geometry'].length
-            # specify new edge   
-            G.add_edge(node_name, u, **attrs)
-        return G
-    else:
-        if G.has_edge(u, v, key):
-            # get attributes from existing edge
-            attrs = G.get_edge_data(u, v, key)
-            original_geom = attrs['geometry']
-            # delete existing edge
-            G.remove_edge(u, v, key)
-            # specify nodes for the new edges
-            G.add_node(u, **u_attrs)
-            G.add_node(v, **v_attrs)
-            G.add_node(node_name, **new_node_attrs)        
-            # construct attributes for first new edge            
-            attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
-                                        node_point)
-            if 'length' in attrs:
-                attrs['length'] = attrs['geometry'].length
-            # specify new edge
-            G.add_edge(u = u, v = node_name, key = 0, **attrs)
-
-            # construct attributes for second new edge
-            attrs['geometry'] = segment(original_geom,
-                                        node_point, 
-                                        endPoints(original_geom)[1])
-            if 'length' in attrs:
-                attrs['length'] = attrs['geometry'].length
-            # specify new edge   
-            G.add_edge(u = node_name, v = v, key = 0, **attrs)    
-        if G.has_edge(v, u, key):
-            # get attributes from existing edge
-            attrs = G.get_edge_data(v, u, key)
-            original_geom = attrs['geometry']
-            # delete existing edge
-            G.remove_edge(v, u, key)
-            # specify nodes for the new edges
-            G.add_node(u, **u_attrs)
-            G.add_node(v, **v_attrs)
-            G.add_node(node_name, **new_node_attrs)
-            # construct attributes for first new edge
-            attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
-                                        node_point)
-            if 'length' in attrs:
-                attrs['length'] = attrs['geometry'].length
-            # specify new edge
-            G.add_edge(u = v, v = node_name, key = 0, **attrs)
-            # construct attributes for second new edge
-            attrs['geometry'] = segment(original_geom, 
-                                        node_point, 
-                                        endPoints(original_geom)[1])
-            if 'length' in attrs:
-                attrs['length'] = attrs['geometry'].length
-            # specify new edge   
-            G.add_edge(u = node_name, v = u, key = 0, **attrs)
-        return G
-
-
-def split_gdf_lines(gdf, segment_length, centered = False, min_length = 0):
+def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
     """Split LineStrings in a GeoDataFrame into equal-length peices.
 
     Attributes in accompanying columns are copied to all children of each
@@ -715,12 +511,12 @@ def split_gdf_lines(gdf, segment_length, centered = False, min_length = 0):
     segment_length: :obj:`float`
         Length of segments to create.
     centered : :obj:`bool` or :obj:`str`, optional, default = ``False``
-        - ``False`` : Not centered; points are spaced evenly from the start of each LineString 
-        - ``'Point'`` : A point is located at each LineString midpoint
-        - ``'Space'`` : A gap between points is centered on each LinesString
+        * ``False`` : Not centered; points are spaced evenly from the start of each LineString 
+        * ``'Point'`` : A point is located at each LineString midpoint
+        * ``'Space'`` : A gap between points is centered on each LinesString
 
     Returns
-    ----------
+    -------
     :class:`geopandas.GeoDataFrame`
     """
     # initiate new dataframe to hold segments
@@ -755,8 +551,19 @@ def split_gdf_lines(gdf, segment_length, centered = False, min_length = 0):
     return segments
 
 
-#### Function to make a rectangular bounding box around all elements in a geodataframe
-def boundsBox(gdf):
+def gdf_bbox(gdf):
+    """Make a bounding box around all geometries in a GeoDataFrame.
+
+    Parameters
+    ----------
+    gdf : :class:`geopandas.GeoDataFrame`
+        GeoDataFrame with geometries around which to define bounding box
+
+    Returns
+    -------
+    :class:`geopandas.Polygon`
+        Bounding box
+    """
     bounds = gdf.total_bounds
     return Polygon([(bounds[0], bounds[1]),
                     (bounds[2], bounds[1]),
@@ -764,8 +571,19 @@ def boundsBox(gdf):
                     (bounds[0], bounds[3])])
 
 
-#### Function to replace gdf geometry with centroids
-def centroidGDF(gdf):
+def gdf_centroid(gdf):
+    """Replace GeoDataFrame geometries with centroids.
+
+    Parameters
+    ----------
+    gdf : :class:`geopandas.GeoDataFrame`
+        GeoDataFrame with LineString or Polygon geometries
+
+    Returns
+    -------
+    :class:`geopandas.GeoDataFrame`
+        GeoDataFrame with original geometies replaced by their centroids
+    """
     gdf = gdf.copy()
     centroids = gdf.centroid
     gdf['geometry'] = centroids
@@ -773,31 +591,28 @@ def centroidGDF(gdf):
 
 
 def haversine(lon1, lat1, lon2, lat2, unit = 'km'):
-    """
-    Calculate the great circle distance between two points 
-    on the earth (specified in decimal degrees)
+    """Calculate the great circle distance between two lat/lons.
+
+    Adapted from https://stackoverflow.com/questions/4913349
 
     Parameters
     ----------
-    lon1: float
-
-    lat1: float
-
-    lon2: float
-
-    lat2: float
-
-    unit: str
-        'km' = kilometers (default)
-        'mi' = miles
+    lon1 : :obj:`float`
+        Longitude of 1st point
+    lat1 : :obj:`float`
+        Latitute of 1st point
+    lon2 : :obj:`float`
+        Longitude of 2nd point
+    lat2 : :obj:`float`
+        Latitude of 2nd point
+    unit : :obj:`str`, optional, default = ``'km'``
+        * ``'km'`` : Kilometers
+        * ``'mi'`` : Miles
 
     Returns
-    ----------
-    float
-        distance in specified units
-
-    adapted from https://stackoverflow.com/questions/4913349
-
+    -------
+    :obj:`float`
+        Distance in specified unit
     """
     if unit == 'km':
         r = 6371 # Radius of the earth in km
@@ -811,4 +626,3 @@ def haversine(lon1, lat1, lon2, lat2, unit = 'km'):
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
     c = 2 * asin(sqrt(a)) 
     return c * r
-
