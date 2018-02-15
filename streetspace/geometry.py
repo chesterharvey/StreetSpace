@@ -11,7 +11,9 @@ import numpy as np
 from shapely.ops import linemerge
 from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
     Polygon, MultiPolygon, GeometryCollection)
-from math import radians, cos, sin, asin, sqrt
+from math import radians, cos, sin, asin, sqrt, ceil
+import geopandas as gpd
+from rtree import index
 
 def vertices_to_points(geometry):
     """Convert vertices of a Shapely LineString or Polygon into points.
@@ -109,9 +111,9 @@ def shorten_line(linestring, shorten_dist, ends = 'both'):
         end = linestring.interpolate(linestring.length - shorten_dist)
     elif ends == 'start':
         start = linestring.interpolate(shorten_dist)
-        end = endPoints(linestring)[1]
+        end = endpoints(linestring)[1]
     elif ends == 'end':
-        start = endPoints(linestring)[0]
+        start = endpoints(linestring)[0]
         end = linestring.interpolate(linestring.length - shorten_dist)
     return segment(linestring, start, end)
 
@@ -207,7 +209,7 @@ def segment(linestring, u, v):
     """
     segment = split_line_at_points(linestring, [u, v])[1]
     # See if the beginning of the segment aligns with u
-    if endPoints(segment)[0].equals(u):
+    if endpoints(segment)[0].equals(u):
         return segment
     # Otherwise, flip the line direction so it matches the order of u -> v
     else:
@@ -215,7 +217,7 @@ def segment(linestring, u, v):
     return LineString(np.flip(np.array(segment), 0)) 
 
 
-def closest_point_along_lines(search_point, linestrings, search_distance=None
+def closest_point_along_lines(search_point, linestrings, search_distance=None,
     linestrings_sindex=None):
     """Find the closest point along any of multiple LineStrings.
 
@@ -245,19 +247,19 @@ def closest_point_along_lines(search_point, linestrings, search_distance=None
     """
     # Get linestrings within the search distance based a specified spatial index:  
     if linestrings_sindex != None:
-        if search_dist == None:
-            raise ValueError('Must specify search_dist if using spatial index')
+        if search_distance == None:
+            raise ValueError('Must specify search_distance if using spatial index')
         # construct search area around point
-        search_area = search_point.buffer(search_dist)
+        search_area = search_point.buffer(search_distance)
         # get nearby IDs
         find_line_indices = [int(i) for i in 
             linestrings_sindex.intersection(search_area.bounds)]
         # Get nearby geometries:
         linestrings = [linestrings[i] for i in find_line_indices]
     # Get linestrings within a specified search distance:
-    elif search_dist != None:
+    elif search_distance != None:
         # construct search area around point
-        search_area = search_point.buffer(search_dist)
+        search_area = search_point.buffer(search_distance)
         # get linestrings intersecting search area
         linestrings, find_line_indices = zip(*[(line, i) for i, line in 
                                              enumerate(linestrings) if
@@ -523,9 +525,9 @@ def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
     segments = gpd.GeoDataFrame(data=None, columns=gdf.columns, 
                                 geometry = 'geometry', crs=gdf.crs)
     for i, segment in gdf.iterrows():
-        points = points_along_line(segment['geometry'], 
-                                    segment_length, 
-                                    centered = centered)
+        points = spaced_points_along_line(segment['geometry'], 
+                                          segment_length, 
+                                          centered = centered)
         points = points[1:] # exclude the starting point
         # cut the segment at each point
         segment_geometries = split_line_at_points(segment['geometry'], points)

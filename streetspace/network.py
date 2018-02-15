@@ -9,7 +9,7 @@
 from .geometry import *
 
 
-def closest_network_point(G, search_point, search_distance,
+def closest_point_along_network(G, search_point, search_distance,
     edges_sindex=None):
     """
     Find the closest point along the edges of a NetworkX graph with Shapely 
@@ -48,8 +48,8 @@ def closest_network_point(G, search_point, search_distance,
     if edges_sindex is None:
         line_index = [data['geometry'] for _, _, data in G.edges(data=True)]
     # find the closest point for connection along the network 
-    edge_ID, point = closestPointAmongLines(search_point, edge_geometries, 
-        lines_sindex=edges_sindex, search_distance=search_distance)
+    edge_ID, point = closest_point_along_lines(search_point, edge_geometries, 
+        search_distance=search_distance, linestrings_sindex=edges_sindex)
     if edge_ID is not None:
         try: # will not return key if the network is DiGraph
             u, v  = edge_IDs[edge_ID]
@@ -122,14 +122,14 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             G.add_node(node_name, **new_node_attrs)
             # construct attributes for first new edge
             attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
+                                        endpoints(original_geom)[0], 
                                         node_point)
             attrs['length'] = attrs['geometry'].length
             G.add_edge(u, node_name, **attrs)
             # construct attributes for second new edge
             attrs['geometry'] = segment(original_geom, 
                                         node_point, 
-                                        endPoints(original_geom)[1])
+                                        endpoints(original_geom)[1])
             attrs['length'] = attrs['geometry'].length
             G.add_edge(node_name, v, **attrs)
         if G.has_edge(v, u): # examine the edge from v to u
@@ -144,7 +144,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             G.add_node(node_name, **new_node_attrs)
             # construct attributes for first new edge
             attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
+                                        endpoints(original_geom)[0], 
                                         node_point)
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
@@ -153,7 +153,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             # construct attributes for second new edge
             attrs['geometry'] = segment(original_geom, 
                                         node_point, 
-                                        endPoints(original_geom)[1])
+                                        endpoints(original_geom)[1])
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
             # specify new edge   
@@ -172,7 +172,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             G.add_node(node_name, **new_node_attrs)        
             # construct attributes for first new edge            
             attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
+                                        endpoints(original_geom)[0], 
                                         node_point)
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
@@ -181,7 +181,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             # construct attributes for second new edge
             attrs['geometry'] = segment(original_geom,
                                         node_point, 
-                                        endPoints(original_geom)[1])
+                                        endpoints(original_geom)[1])
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
             # specify new edge   
@@ -198,7 +198,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             G.add_node(node_name, **new_node_attrs)
             # construct attributes for first new edge
             attrs['geometry'] = segment(original_geom, 
-                                        endPoints(original_geom)[0], 
+                                        endpoints(original_geom)[0], 
                                         node_point)
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
@@ -207,7 +207,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             # construct attributes for second new edge
             attrs['geometry'] = segment(original_geom, 
                                         node_point, 
-                                        endPoints(original_geom)[1])
+                                        endpoints(original_geom)[1])
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
             # specify new edge   
