@@ -7,6 +7,7 @@
 from .network import *
 from .geometry import *
 from .utils import *
+from .streetscape import *
 
 __version__ = '0.1.0'
 

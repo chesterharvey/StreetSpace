@@ -4,6 +4,15 @@ StreetSpace package
 Submodules
 ----------
 
+streetspace\.streetscape module
+----------------------------
+
+.. automodule:: streetspace.streetscape
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
 streetspace\.geometry module
 ----------------------------
 

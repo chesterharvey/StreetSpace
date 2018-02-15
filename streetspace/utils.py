@@ -189,13 +189,28 @@ def odrive_status(verbose=False):
 
     command = 'python "$HOME/.odrive-agent/bin/odrive.py" status'
     bash_command(command, verbose=verbose)
-    # p = subprocess.Popen(command, stdout=subprocess.PIPE,
-    #                      stderr=subprocess.PIPE, shell=True,
-    #                      universal_newlines=True)
-    # output, error = p.communicate()
-    # return output, error
-    # if verbose:
-    #     if bool(output) > 0:
-    #         print(output)
-    #     if bool(error) > 0:
-    #         print('error: {}'.format(error))
+    
+
+def empty_array(rows, fields):
+    """Initiate an empty array from a dictionary of field names and dtypes.
+
+    Parameters
+    ----------
+    rows: :obj:`int`
+        Number of rows
+    fields: :obj:`dict`
+        * Each field's name and dtype should be specified as a key-value pair.
+        * Both name and dtype must be :obj:`str`
+
+    Returns
+    ----------
+    :class:`numpy.ndarray`
+        Empty array
+    """
+    return np.empty(rows, 
+                    dtype={'names':tuple(fields.keys()),
+                           'formats':tuple(fields.values())})
+
+
+
+

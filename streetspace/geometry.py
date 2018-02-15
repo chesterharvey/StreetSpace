@@ -166,6 +166,29 @@ def split_line_at_points(linestring, points):
             linestrings.append(LineString(coords[i:j+1]))
     return linestrings
 
+def split_line_at_intersection(linestring, split_linestring):
+    """Split one LineString at its points of intersection with another LineString.
+
+    Parameters
+    ----------
+    linestring : :class:`shapely.geometry.LineString`
+        LineString to split
+
+    split_linestring : :class:`shapely.geometry.LineString`
+        LineString to split by
+
+    Returns
+    ----------
+    :obj:`list`
+        Segments as :class:`shapely.geometry.LineString`
+    """
+    points = linestring.intersection(split_linestring)
+    if isinstance(points, Point):
+        points = [points]
+    else:
+        points = [x for x in points]
+    return split_line_at_points(linestring, points)
+
 
 def split_line_at_dists(linestring, dists):
     """Split a LineString into segments defined by distances along it.
@@ -626,5 +649,89 @@ def haversine(lon1, lat1, lon2, lat2, unit = 'km'):
     dlon = lon2 - lon1 
     dlat = lat2 - lat1 
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a)) 
+    c = 2 * asin(sqrt(a))
     return c * r
+
+
+def degrees_centered_at_zero(degrees):
+    """Rescale degrees so they are centered at 0.
+
+    Ouputs will range from -180 to 180.
+    
+    Parameters
+    ----------
+    degrees : :obj:`float`
+        Degrees centered at 180 (e.g., ranging from 0 to 360)
+
+    Returns
+    -------
+    :obj:`float`
+        Degrees centered at 0
+    """
+    if degrees > 180:
+        degrees = degrees - 360
+    elif degrees < -180:
+        degrees = degrees + 360
+    elif degrees == -180:
+        degrees = 180
+    return degrees
+
+
+
+def side_by_relative_angle(angle):
+    """Assign side based on relative angle centered on 0 degrees.
+
+    Negative angles are left. Positive angles are right.
+    
+    Parameters
+    ----------
+    degrees : :obj:`float`
+        Degrees centered at 180 (e.g., ranging from 0 to 360)
+
+    Returns
+    -------
+    :obj:`str`
+        * ``'L'`` : Left
+        * ``'R'`` : Right
+        * ``'C'`` : Centered
+    """
+    if angle < 0:
+        return 'R'
+    elif angle > 0:
+        return 'L'
+    else:
+        return 'C'
+
+ 
+def float_overlap(min_a, max_a, min_b, max_b):
+    """Get the overlap between two floating point ranges.
+
+    Adapted from https://stackoverflow.com/questions/2953967/built-in-function-for-computing-overlap-in-python
+
+    Parameters
+    ----------
+    min_a : :obj:`float`
+        First range's minimum
+    max_a : :obj:`float`
+        First range's maximum
+    min_b : :obj:`float`
+        Second range's minimum
+    max_b : :obj:`float`
+        Second range's maximum
+
+    Returns
+    -------
+    :obj:`float`
+        Length of overlap between ranges
+    """
+    return max(0, min(max_a, max_b) - max(min_a, min_b))
+
+
+
+
+
+
+
+
+
+
