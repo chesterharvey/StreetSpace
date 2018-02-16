@@ -6,6 +6,8 @@
 # License: MIT
 ################################################################################
 
+import numpy as np
+
 from .geometry import *
 
 

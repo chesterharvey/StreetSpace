@@ -1,5 +1,6 @@
 # Jupyter
 *.ipynb
+data/
 
 # Mac OS
 .DS_Store

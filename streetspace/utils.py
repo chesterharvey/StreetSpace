@@ -4,6 +4,8 @@
 # License: MIT, see full license in LICENSE.txt
 ################################################################################
 
+import numpy as np
+
 import subprocess
 
 def bash_command(command, verbose=False):

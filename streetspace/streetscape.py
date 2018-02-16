@@ -8,7 +8,7 @@
 
 import numpy as np
 
-import geometry
+from .geometry import *
 
 def find_nearby_buildings(edge, buildings, buildings_sindex,
     primary_search_distance, secondary_search_distance):
@@ -58,17 +58,17 @@ def find_nearby_buildings(edge, buildings, buildings_sindex,
     def search_side(side):
         if len(sides[sides == side]) > 0:
             # Get the minimum building distance on this side of the edge
-            min_building_dist = min(building_dists[sides == side])
+            search_distance = min(building_dists[sides == side])
             # add the secondary search distance to it
-            f = (min_building_dist + secondary_search_distance)
-            # Gnsure that the maximum search distance is maintained
+            search_distance = search_distance + secondary_search_distance
+            # Ensure that the maximum search distance is maintained
             if search_distance > primary_search_distance:
-                search_distance = primary_search_distance    
+                search_distance = primary_search_distance
             # Make search area
             search_area = edge.buffer(search_distance, cap_style = 2)
             # Get indices for buildings in within search distance
             building_indices = ((sides == side) & 
-                                (building_dists < search_distance))
+                                (building_dists <= search_distance))
             buildings = nearby_buildings.index[()]
         else:
             search_distance = np.nan
@@ -81,7 +81,7 @@ def find_nearby_buildings(edge, buildings, buildings_sindex,
     buffer = edge.buffer(primary_search_distance, cap_style = 2)
     # Find buildings intersecting the buffer
     possible_matches_index = list(buildings_sindex.intersection(buffer.bounds))
-    possible_matches = buildings_gdf.iloc[possible_matches_index]
+    possible_matches = buildings.iloc[possible_matches_index]
     nearby_buildings = possible_matches[possible_matches.intersects(buffer)]
     # Only further examine if there are any nearby buildings
     if len(nearby_buildings) > 0:
@@ -105,8 +105,6 @@ def find_nearby_buildings(edge, buildings, buildings_sindex,
  #       sides = [side_by_relative_angle(degrees_centered_at_zero(centroid_azimuths[x] - edge_azimuths[x])) for i in range(len(centroids))]
         sides = np.array(sides)
 
-        
-
         if len(sides[sides == 'R']) > 0:
             r_search_distance, r_search_area, r_buildings = search_side('R')
 
@@ -126,4 +124,4 @@ def find_nearby_buildings(edge, buildings, buildings_sindex,
             l_search_distance, l_search_area, l_buildings)
         
 # vectorized version
-vFindNearbyBuildings = np.vectorize(findNearbyBuildings, otypes=['float64', 'object', np.ndarray, 'float64', 'object', np.ndarray], excluded = [1,2,3,4])
+# vFindNearbyBuildings = np.vectorize(findNearbyBuildings, otypes=['float64', 'object', np.ndarray, 'float64', 'object', np.ndarray], excluded = [1,2,3,4])
