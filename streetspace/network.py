@@ -6,6 +6,7 @@
 # License: MIT
 ################################################################################
 
+import networkx as nx
 import numpy as np
 from rtree import index
 
