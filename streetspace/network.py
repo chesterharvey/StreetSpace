@@ -7,6 +7,7 @@
 ################################################################################
 
 import numpy as np
+from rtree import index
 
 from .geometry import *
 
@@ -215,3 +216,23 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             # specify new edge   
             G.add_edge(u = node_name, v = u, key = 0, **attrs)
         return G
+
+
+def graph_sindex(G):
+    """Create a spatial index from a graph with geometry attributes.
+
+    Parameters
+    ----------
+    G : :class:`networkx.Graph`
+        Must include :class:`shapely.geometry.LineString` geometry attributes 
+
+    Returns
+    ----------
+    :class:`rtree.index.Index`
+        Spatial index
+    """
+    idx = index.Index()
+    geometries = nx.get_edge_attributes(G, 'geometry')
+    for i, (edge, geom) in enumerate(geometries.items()):
+        idx.insert(i, geom.bounds, edge)
+    return idx

@@ -332,26 +332,6 @@ def list_sindex(geometries):
     return idx
 
 
-def graph_sindex(G):
-    """Create a spatial index from a graph with geometry attributes.
-
-    Parameters
-    ----------
-    G : :class:`networkx.Graph`
-        Must include :class:`shapely.geometry.LineString` geometry attributes 
-
-    Returns
-    ----------
-    :class:`rtree.index.Index`
-        Spatial index
-    """
-    idx = index.Index()
-    geometries = nx.get_edge_attributes(G, 'geometry')
-    for i, (edge, geom) in enumerate(geometries.items()):
-        idx.insert(i, geom.bounds, edge)
-    return idx
-
-
 def spaced_points_along_line(linestring, spacing, centered = False):
     """Create equally spaced points along a Shapely LineString.
 
