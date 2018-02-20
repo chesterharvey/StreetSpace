@@ -237,3 +237,25 @@ def graph_sindex(G):
     for i, (edge, geom) in enumerate(geometries.items()):
         idx.insert(i, geom.bounds, edge)
     return idx
+
+
+def add_edge_attribute(G, attribute, value):
+    """Add or modify an edge attribute based on existing attributes.
+
+    Adds attribute directly to the input graph, G.
+
+    Parameters
+    ----------
+    G : :class:`networkx.Graph`
+        Graph to which to add attribute.
+
+    attribute : :obj:`str`
+        Attribute name
+
+    value : any
+        Value for attribute to take. May be expressed in terms of an existing\
+        attribute by calling it as a key of ``data``.\
+        For example: ``data['name']``
+    """
+    for u, v, key, data in G.edges(data=True, keys=True):
+        G[u][v][key][attribute] = value
