@@ -750,7 +750,7 @@ def clip_line_by_polygon(line, polygon):
                 within_lines.append(line)
         if len(within_lines) == 1:
             return within_lines[0]
-        elif:
+        elif len(within_lines) > 1:
             return MultiLineString(within_lines)
 
 
