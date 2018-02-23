@@ -727,6 +727,33 @@ def float_overlap(min_a, max_a, min_b, max_b):
     return max(0, min(max_a, max_b) - max(min_a, min_b))
 
 
+def clip_line_by_polygon(line, polygon):
+    """Clip a polyline to only the portion within a polygon boundary.
+    
+    Parameters
+    ----------
+    line : :class:`shapely.geometry.LineString`
+        Line to clip
+    polygon : :class:`shapely.geometry.Polygon`
+        Polygon to clip by
+
+    Returns
+    -------
+    :class:`shapely.geometry.LineString` or :class:`shapely.geometry.MultiLineString`
+        Line segment(s) within the polygon boundary
+    """
+    def clip_line_by_polygon(line, polygon):
+    split_lines = sp.split_line_at_intersection(line, polygon.boundary)
+    within_lines = []
+    for line in split_lines:
+        if sp.shorten_line(line, 1e-6).within(polygon):
+            within_lines.append(line)
+    if len(within_lines) == 1:
+        return within_lines[0]
+    elif:
+        return MultiLineString(within_lines)
+
+
 
 
 
