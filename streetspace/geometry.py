@@ -743,15 +743,20 @@ def clip_line_by_polygon(line, polygon):
         Line segment(s) within the polygon boundary
     """
     def clip_line_by_polygon(line, polygon):
-        split_lines = sp.split_line_at_intersection(line, polygon.boundary)
-        within_lines = []
-        for line in split_lines:
-            if sp.shorten_line(line, 1e-6).within(polygon):
-                within_lines.append(line)
-        if len(within_lines) == 1:
-            return within_lines[0]
-        elif len(within_lines) > 1:
-            return MultiLineString(within_lines)
+        if line.intersects(polygon.boundary):
+            split_lines = sp.split_line_at_intersection(line, polygon.boundary)
+            within_lines = []
+            for line in split_lines:
+                if sp.shorten_line(line, 1e-6).within(polygon):
+                    within_lines.append(line)
+            if len(within_lines) == 1:
+                return within_lines[0]
+            else:
+                return MultiLineString(within_lines)
+        elif line.within(polygon):
+            return line
+        else:
+            return None
 
 
 
