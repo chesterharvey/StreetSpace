@@ -728,7 +728,7 @@ def float_overlap(min_a, max_a, min_b, max_b):
 
 
 def clip_line_by_polygon(line, polygon):
-    """Clip a polyline to only the portion within a polygon boundary.
+    """Clip a polyline to the portion within a polygon boundary.
     
     Parameters
     ----------
@@ -756,6 +756,55 @@ def clip_line_by_polygon(line, polygon):
         return line
     else:
         return None
+
+def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
+    """Clip a polyline to the portion within a polygon boundary.
+    
+    Parameters
+    ----------
+    line_gdf : :class:`geopandas.GeoDataFrame`
+        Lines to clip. Geometry type must be :class:`shapely.geometry.LineString`
+
+    polygon_gdf : :class:`geopandas.GeoDataFrame`
+        Polygons to clip by. Geometry type must be :class:`shapely.geometry.Polygon`
+
+    Returns
+    -------
+    :class:`geopandas.GeoDataFrame`
+        Line segments within the polygons
+    """
+    line_gdf['line_index'] = line_gdf.index
+    line_columns = list(line_gdf.columns)
+    line_columns.remove('geometry')
+    polygon_gdf['polygon_index'] = polygon_gdf.index
+    polygon_columns = list(polygon_gdf.columns)
+    polygon_columns.remove('geometry')
+    output_columns = line_columns + polygon_columns + ['geometry']
+    clip_gdf = gpd.GeoDataFrame(columns=output_columns, geometry='geometry', crs=line_gdf.crs)
+    for polygon in polygon_gdf.itertuples():
+        for line in line_gdf.itertuples():
+            clipped = sp.clip_line_by_polygon(line.geometry, polygon.geometry)
+            if clipped is not None:
+                polygon_dict = polygon._asdict()
+                for x in ['geometry', 'Index']:
+                    polygon_dict.pop(x, None)
+                line_dict = line._asdict()
+                for x in ['geometry', 'Index']:
+                    line_dict.pop(x, None)
+                new_dict = {**line_dict, **polygon_dict}
+                if isinstance(clipped, LineString):
+                    new_dict['geometry'] = clipped
+                    new_gdf_row = gpd.GeoDataFrame([new_dict], geometry='geometry', crs=line_gdf.crs)
+                    clip_gdf = pd.concat([clip_gdf, new_gdf_row])
+                elif isinstance(clipped, MultiLineString):
+                    for line in MultiLineString:
+                        new_dict['geometry'] = line
+                        new_gdf_row = gpd.GeoDataFrame([new_dict], geometry='geometry', crs=line_gdf.crs)
+                        clip_gdf = pd.concat([clip_gdf, new_gdf_row])
+    clip_gdf = df_first_column(clip_gdf, 'line_index')
+    clip_gdf = df_first_column(clip_gdf, 'polygon_index')
+    clip_gdf = df_last_column(clip_gdf, 'geometry')
+    return clip_gdf
 
 
 

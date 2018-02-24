@@ -5,7 +5,6 @@
 ################################################################################
 
 import numpy as np
-
 import subprocess
 
 def bash_command(command, verbose=False):
@@ -214,5 +213,41 @@ def empty_array(rows, fields):
                            'formats':tuple(fields.values())})
 
 
+def df_first_column(df, column_name):
+    """Move a dataframe column to the left-most position.
+    
+    Parameters
+    ----------
+    df: :class:`pandas.DataFrame`
+        Dataframe to rearrange
+        
+    column_name: :obj:`str`
+        Column to move.
+    Returns
+    ----------
+    :class:`pandas.DataFrame`
+        Rearranged dataframe
+    """
+    cols = list(df)
+    cols.insert(0, cols.pop(cols.index(column_name)))
+    return df.loc[:, cols]
 
 
+def df_last_column(df, column_name):
+    """Move a dataframe column to the right-most position.
+    
+    Parameters
+    ----------
+    df: :class:`pandas.DataFrame`
+        Dataframe to rearrange
+        
+    column_name: :obj:`str`
+        Column to move.
+    Returns
+    ----------
+    :class:`pandas.DataFrame`
+        Rearranged dataframe
+    """
+    cols = list(df)
+    cols.insert(len(cols), cols.pop(cols.index(column_name)))
+    return df.loc[:, cols]
