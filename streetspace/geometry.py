@@ -15,6 +15,8 @@ from math import radians, cos, sin, asin, sqrt, ceil
 import geopandas as gpd
 from rtree import index
 
+from .utils import *
+
 def vertices_to_points(geometry):
     """Convert vertices of a Shapely LineString or Polygon into points.
 
@@ -805,6 +807,7 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     clip_gdf = df_first_column(clip_gdf, 'polygon_index')
     clip_gdf = df_last_column(clip_gdf, 'geometry')
     return clip_gdf
+
 
 
 
