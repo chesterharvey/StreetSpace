@@ -13,6 +13,7 @@ from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
     Polygon, MultiPolygon, GeometryCollection)
 from math import radians, cos, sin, asin, sqrt, ceil
 import geopandas as gpd
+import pandas as pd
 from rtree import index
 
 from .utils import *
