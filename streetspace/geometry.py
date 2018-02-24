@@ -776,9 +776,11 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     :class:`geopandas.GeoDataFrame`
         Line segments within the polygons
     """
+    line_gdf = line_gdf.copy()
     line_gdf['line_index'] = line_gdf.index
     line_columns = list(line_gdf.columns)
     line_columns.remove('geometry')
+    polygon_gdf = polygon_gdf.copy()
     polygon_gdf['polygon_index'] = polygon_gdf.index
     polygon_columns = list(polygon_gdf.columns)
     polygon_columns.remove('geometry')
