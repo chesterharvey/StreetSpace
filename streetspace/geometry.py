@@ -742,21 +742,23 @@ def clip_line_by_polygon(line, polygon):
     :class:`shapely.geometry.LineString` or :class:`shapely.geometry.MultiLineString`
         Line segment(s) within the polygon boundary
     """
-    def clip_line_by_polygon(line, polygon):
-        if line.intersects(polygon.boundary):
-            split_lines = split_line_at_intersection(line, polygon.boundary)
-            within_lines = []
-            for line in split_lines:
-                if shorten_line(line, 1e-6).within(polygon):
-                    within_lines.append(line)
-            if len(within_lines) == 1:
-                return within_lines[0]
-            else:
-                return MultiLineString(within_lines)
-        elif shorten_line(line, 1e-6).within(polygon):
-            return line
+    if line.intersects(polygon.boundary):
+        print('through!')
+        split_lines = split_line_at_intersection(line, polygon.boundary)
+        within_lines = []
+        for line in split_lines:
+            if shorten_line(line, 1e-6).within(polygon):
+                within_lines.append(line)
+        if len(within_lines) == 1:
+            return within_lines[0]
         else:
-            return None
+            return MultiLineString(within_lines)
+    elif shorten_line(line, 1e-6).within(polygon):
+        print('Inside!')
+        return line
+    else:
+        print('Outside!')
+        return None
 
 
 
