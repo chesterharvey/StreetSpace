@@ -744,16 +744,16 @@ def clip_line_by_polygon(line, polygon):
     """
     def clip_line_by_polygon(line, polygon):
         if line.intersects(polygon.boundary):
-            split_lines = sp.split_line_at_intersection(line, polygon.boundary)
+            split_lines = split_line_at_intersection(line, polygon.boundary)
             within_lines = []
             for line in split_lines:
-                if sp.shorten_line(line, 1e-6).within(polygon):
+                if shorten_line(line, 1e-6).within(polygon):
                     within_lines.append(line)
             if len(within_lines) == 1:
                 return within_lines[0]
             else:
                 return MultiLineString(within_lines)
-        elif line.within(polygon):
+        elif shorten_line(line, 1e-6).within(polygon):
             return line
         else:
             return None
