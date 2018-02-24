@@ -785,7 +785,7 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     clip_gdf = gpd.GeoDataFrame(columns=output_columns, geometry='geometry', crs=line_gdf.crs)
     for polygon in polygon_gdf.itertuples():
         for line in line_gdf.itertuples():
-            clipped = sp.clip_line_by_polygon(line.geometry, polygon.geometry)
+            clipped = clip_line_by_polygon(line.geometry, polygon.geometry)
             if clipped is not None:
                 polygon_dict = polygon._asdict()
                 for x in ['geometry', 'Index']:
