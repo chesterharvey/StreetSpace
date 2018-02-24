@@ -743,7 +743,6 @@ def clip_line_by_polygon(line, polygon):
         Line segment(s) within the polygon boundary
     """
     if line.intersects(polygon.boundary):
-        print('through!')
         split_lines = split_line_at_intersection(line, polygon.boundary)
         within_lines = []
         for line in split_lines:
@@ -754,10 +753,8 @@ def clip_line_by_polygon(line, polygon):
         else:
             return MultiLineString(within_lines)
     elif shorten_line(line, 1e-6).within(polygon):
-        print('Inside!')
         return line
     else:
-        print('Outside!')
         return None
 
 
