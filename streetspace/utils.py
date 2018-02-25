@@ -251,3 +251,9 @@ def df_last_column(df, column_name):
     cols = list(df)
     cols.insert(len(cols), cols.pop(cols.index(column_name)))
     return df.loc[:, cols]
+
+
+def assure_path_exists(path):
+    dir = os.path.dirname(path)
+    if not os.path.exists(dir):
+        os.makedirs(dir)

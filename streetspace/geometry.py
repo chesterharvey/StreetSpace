@@ -802,7 +802,7 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
                     new_gdf_row = gpd.GeoDataFrame([new_dict], geometry='geometry', crs=line_gdf.crs)
                     clip_gdf = pd.concat([clip_gdf, new_gdf_row])
                 elif isinstance(clipped, MultiLineString):
-                    for line in MultiLineString:
+                    for line in clipped:
                         new_dict['geometry'] = line
                         new_gdf_row = gpd.GeoDataFrame([new_dict], geometry='geometry', crs=line_gdf.crs)
                         clip_gdf = pd.concat([clip_gdf, new_gdf_row])
