@@ -233,7 +233,7 @@ def graph_sindex(G):
         Spatial index
     """
     idx = index.Index()
-    geometries = G_sub.edges(data='geometry')
+    geometries = G.edges(data='geometry')
     for i, (u, v, geom) in enumerate(geometries):
         idx.insert(i, geom.bounds, (u, v))
     return idx
