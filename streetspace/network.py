@@ -181,7 +181,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
             # specify new edge
-            G.add_edge(u = u, v = node_name, key = 0, **attrs)
+            G.add_edge(u, node_name, key = 0, **attrs)
             # construct attributes for second new edge
             attrs['geometry'] = segment(original_geom,
                                         node_point, 
@@ -189,7 +189,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
             # specify new edge   
-            G.add_edge(u = node_name, v = v, key = 0, **attrs)    
+            G.add_edge(node_name, v, key = 0, **attrs)    
         if G.has_edge(v, u, key):
             # get attributes from existing edge
             attrs = G.get_edge_data(v, u, key)
@@ -207,7 +207,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
             # specify new edge
-            G.add_edge(u = v, v = node_name, key = 0, **attrs)
+            G.add_edge(v, node_name, key = 0, **attrs)
             # construct attributes for second new edge
             attrs['geometry'] = segment(original_geom, 
                                         node_point, 
@@ -215,7 +215,7 @@ def insert_node(G, u, v, node_point, node_name, key = None):
             if 'length' in attrs:
                 attrs['length'] = attrs['geometry'].length
             # specify new edge   
-            G.add_edge(u = node_name, v = u, key = 0, **attrs)
+            G.add_edge(node_name, u, key = 0, **attrs)
         return G
 
 
