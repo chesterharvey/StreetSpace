@@ -233,9 +233,9 @@ def graph_sindex(G):
         Spatial index
     """
     idx = index.Index()
-    geometries = nx.get_edge_attributes(G, 'geometry')
-    for i, (edge, geom) in enumerate(geometries.items()):
-        idx.insert(i, geom.bounds, edge)
+    geometries = G_sub.edges(data='geometry')
+    for i, (u, v, geom) in enumerate(geometries):
+        idx.insert(i, geom.bounds, (u, v))
     return idx
 
 
