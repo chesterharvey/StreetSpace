@@ -244,7 +244,7 @@ def segment(linestring, u, v):
 
 
 def closest_point_along_lines(search_point, linestrings, search_distance=None,
-    linestrings_sindex=None):
+    linestrings_sindex=None, sindex_objects=False):
     """Find the closest point along any of multiple LineStrings.
 
     TODO: Would it be easier for the input to this to be a geodataframe?
@@ -279,7 +279,7 @@ def closest_point_along_lines(search_point, linestrings, search_distance=None,
         search_area = search_point.buffer(search_distance)
         # get nearby IDs
         find_line_indices = [int(i) for i in 
-            linestrings_sindex.intersection(search_area.bounds)]
+            linestrings_sindex.intersection(search_area.bounds, objects=sindex_objects)]
         # Get nearby geometries:
         linestrings = [linestrings[i] for i in find_line_indices]
     # Get linestrings within a specified search distance:
@@ -810,6 +810,60 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     clip_gdf = df_first_column(clip_gdf, 'polygon_index')
     clip_gdf = df_last_column(clip_gdf, 'geometry')
     return clip_gdf
+
+def shape_to_gdf(shape, crs=None):
+    """Convert one or more shapes to a geodataframe.
+
+    Parameters
+    ----------
+    shape : list or Shapely geometry
+        List of geometries to be converted into a geodataframe. If a single\
+        geometry, the returned geodataframe will have one row.
+
+    Returns
+    -------
+    :class:`geopandas.GeoDataFrame`
+        Geodataframe with geometries in the 'geometry' column.
+    """
+    # if just one shape, put it in a list
+    if isinstance(shape, (Point, MultiPoint, LineString, MultiLineString, 
+                          Polygon, MultiPolygon)):
+        shape = [shape]
+    return gpd.GeoDataFrame(geometry=shape, crs=crs)
+
+
+def plot_shapes(shapes, axis=False):
+    """Plot multiple shapes.
+
+    Parameters
+    ----------
+    shapes : list or Shapely geometry
+        * a single geometry will be plotted by itself
+        * each geometry in a list will be plotted in a seperate color
+        * each sublist of geometries will be plotted in a seperate color
+
+    axis : :obj:`bool`, optional, default = ``False``
+        * ``True`` : plot will include axes
+        * ``False`` : plot will omit axes
+    """
+    colors = cycle('bgrcmyk')
+    # if just one shape, make into list
+    if isinstance(shapes, (Point, MultiPoint, LineString, MultiLineString, 
+                           Polygon, MultiPolygon)):
+        shapes = [shapes]
+    # plot the first shape as a base
+    first_shape = shapes[0]
+    base = shape_to_gdf(first_shape).plot(color=next(colors))
+    # plot remaining shapes
+    if len(shapes) > 0:
+        remaining_shapes = shapes[1:]
+        for shapes in remaining_shapes:
+            shape_to_gdf(shapes).plot(ax=base, color=next(colors))
+    # show plot
+    if axis is False:
+        plt.axis('off')
+    plt.axis('equal')
+    plt.show()
 
 
 
