@@ -16,6 +16,7 @@ import geopandas as gpd
 import pandas as pd
 from rtree import index
 from itertools import cycle
+import matplotlib.pyplot as plt
 
 from .utils import *
 
