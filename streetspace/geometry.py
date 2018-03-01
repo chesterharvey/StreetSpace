@@ -13,6 +13,7 @@ from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
     Polygon, MultiPolygon, GeometryCollection)
 from math import radians, cos, sin, asin, sqrt, ceil
 import geopandas as gpd
+from geopandas import GeoDataFrame
 import pandas as pd
 from rtree import index
 from itertools import cycle
@@ -245,71 +246,70 @@ def segment(linestring, u, v):
     return LineString(np.flip(np.array(segment), 0)) 
 
 
-def closest_point_along_lines(search_point, linestrings, search_distance=None,
-    linestrings_sindex=None, sindex_objects=False):
-    """Find the closest point along any of multiple LineStrings.
-
-    TODO: Would it be easier for the input to this to be a geodataframe?
-    That way the spatial index could be constructed inline, if necessary,
-    as 'GeoDataFrame.sindex'.
+def closest_point_along_lines(search_point, lines, search_distance=None, 
+    sindex=None):
+    """Find the closest position along multiple lines.
 
     Parameters
     ----------
     search_point : :class:`shapely.geometry.Point`
         Point from which to search
     linestrings : :obj:`list` 
-        LineStrings to search. Must contain :class:`shapely.geometry.LineString`
-    search_distance : :obj:`float`, optional
-        Distance to search from the `search_point`. If not specified,\
-        LineStrings will be searched no matter their distance from the\
-        `search_point`.
-    linestrings_sindex : :class:`rtree.index.Index`, optional
-        Spatial index for LineStrings in `linestrings`
+        Lines to search. Must contain :class:`shapely.geometry.LineString`
+    search_distance : :obj:`float`, optional, default = ``None``
+        Maximum distance to search from the `search_point`
+    sindex : :class:`rtree.index.Index`, optional, default = ``None``
+        Spatial index for list of lines (best created with ``list_sindex``)
     
     Returns
     -------
-    :obj:`int`
-        Index of the closest LineString
-    :class:`shapely.geometry.Point`
-        Closest Point along that LineString
+    closest_point : :class:`shapely.geometry.Point`
+        Location of closest point
+    index : :obj:`tuple`
+        Index for the closest line
+    distance : :obj:`float`
+        Distance from the search_point to the closest line
     """
-    # Get linestrings within the search distance based a specified spatial index:  
-    if linestrings_sindex != None:
-        if search_distance == None:
+    # Check whether lines are formatted as a list of tuples, with indices
+    # in the first positions and geometries in the second positions
+    tuples = True
+    for line in lines:
+        if not isinstance(line, tuple):
+            tuples = False
+    # If not indexed tuples, create them
+    if tuples is False:
+        lines = [(i, x) for i, x in enumerate(lines)]
+    # Pare down lines, if spatial index provided
+    if sindex:
+        if not search_distance:
             raise ValueError('Must specify search_distance if using spatial index')
-        # construct search area around point
+        # Construct search bounds around the search point
+        search_bounds = search_point.buffer(search_distance).bounds
+        # Get indices for lines within search bounds
+        line_indices = [i for i in sindex.intersection(search_bounds, 
+                                                       objects='raw')]
+        # Get pared lines
+        lines = [lines[i] for i in line_indices]
+    # Pare down lines, if only search distance provided
+    elif search_distance:
+        # Construct search bounds around the search point
         search_area = search_point.buffer(search_distance)
-        # get nearby IDs
-        find_line_indices = [int(i) for i in 
-            linestrings_sindex.intersection(search_area.bounds, objects=sindex_objects)]
-        # Get nearby geometries:
-        linestrings = [linestrings[i] for i in find_line_indices]
-    # Get linestrings within a specified search distance:
-    elif search_distance != None:
-        # construct search area around point
-        search_area = search_point.buffer(search_distance)
-        # get linestrings intersecting search area
-        linestrings, find_line_indices = zip(*[(line, i) for i, line in 
-                                             enumerate(linestrings) if
-                                             line.intersects(search_area)])
-    # Otherwise, get all linestrings:
-    find_line_indices = [i for i, _ in enumerate(linestrings)]
-    # Calculate distances to all remaining linestrings
+        # Get pared IDs
+        lines = [line for line in lines if line[1].intersects(search_area)]    
+    # Calculate the distance between the search point and each line   
     distances = []
-    for line in linestrings:
-        distances.append(search_point.distance(line))
-    # Only return a closest point if there is a line within search distance:
+    for _, line in lines:
+        distances.append(search_point.distance(line))    
+    # Find closest line
     if len(distances) > 0:
-        # find the line index with the minimum distance
-        _, line_idx = min((distance, i) for (i, distance) in 
-                              zip(find_line_indices, distances))
+        distance, (i, line) = min((distance, i) for (i, distance) in 
+                                  zip(lines, distances))
         # Find the nearest point along that line
-        search_line = linestrings[find_line_indices.index(line_idx)]
-        lin_ref = search_line.project(search_point)
-        closest_point = search_line.interpolate(lin_ref)
-        return line_idx, closest_point
+        closest_point = line.interpolate(line.project(search_point))
+        return closest_point, i, distance
+    # If no lines within search distance, return nothing
     else:
-        return None, None
+        return None, None, None
 
 
 def list_sindex(geometries):
@@ -333,7 +333,7 @@ def list_sindex(geometries):
     """
     idx = index.Index()
     for i, geom in enumerate(geometries):
-        idx.insert(i, geom.bounds)
+        idx.insert(i, geom.bounds, obj=i)
     return idx
 
 
@@ -834,7 +834,7 @@ def shape_to_gdf(shape, crs=None):
     return gpd.GeoDataFrame(geometry=shape, crs=crs)
 
 
-def plot_shapes(shapes, axis=False):
+def plot_shapes(shapes, show_axes=False):
     """Plot multiple shapes.
 
     Parameters
@@ -848,21 +848,33 @@ def plot_shapes(shapes, axis=False):
         * ``True`` : plot will include axes
         * ``False`` : plot will omit axes
     """
-    colors = cycle('bgrcmyk')
+    colors = cycle('brgcmyk')
     # if just one shape, make into list
     if isinstance(shapes, (Point, MultiPoint, LineString, MultiLineString, 
-                           Polygon, MultiPolygon)):
+                           Polygon, MultiPolygon, GeoDataFrame)):
         shapes = [shapes]
+    # if a list of shapes, make sure all individual shapes are in sublists
+    elif isinstance(shapes, list):
+        for i, shape in enumerate(shapes):
+            if isinstance(shape, (Point, MultiPoint, LineString,
+                                  MultiLineString, Polygon, MultiPolygon)):
+                shapes[i] = [shape]   
     # plot the first shape as a base
     first_shape = shapes[0]
-    base = shape_to_gdf(first_shape).plot(color=next(colors))
+    if isinstance(first_shape, GeoDataFrame):
+        base = first_shape.plot(color=next(colors))
+    else:
+        base = shape_to_gdf(first_shape).plot(color=next(colors))
     # plot remaining shapes
     if len(shapes) > 0:
         remaining_shapes = shapes[1:]
-        for shapes in remaining_shapes:
-            shape_to_gdf(shapes).plot(ax=base, color=next(colors))
+        for shape in remaining_shapes:
+            if isinstance(shape, GeoDataFrame):
+                shape.plot(ax=base, color=next(colors))
+            else:
+                shape_to_gdf(shape).plot(ax=base, color=next(colors))
     # show plot
-    if axis is False:
+    if show_axes is False:
         plt.axis('off')
     plt.axis('equal')
     plt.show()

@@ -13,60 +13,73 @@ from rtree import index
 from .geometry import *
 
 
-def closest_point_along_network(G, search_point, search_distance,
-    edges_sindex=None):
+def closest_point_along_network(search_point, G, search_distance=None, 
+    sindex=None):
     """
     Find the closest point along the edges of a NetworkX graph with Shapely 
     LineString geometry attributes in the same coordinate system.
 
     Parameters
     ----------
+    search_point : :class:`shapely.geometry.Point`
+        Point from which to search
     G : :class:`networkx.Graph`, :class:`networkx.DiGraph`, \
     :class:`networkx.MultiGraph` or :class:`networkx.MultiDiGraph`
         Graph along which closest point will be found. Each edge of `G` must\
         have a :class:`shapely.geometry.LineString` geometry attribute.
-
-    search_point : :class:`shapely.geometry.Point`
-        Point from which to search
-
-    search_distance : :obj:`float`
+    search_distance : :obj:`float`, optional, default = ``None``
         Maximum distance to search from the `search_point`
-
-    edges_sindex : :class:`rtree.index.Index`, optional, default = ``None``
+    sindex : :class:`rtree.index.Index`, optional, default = ``None``
         Spatial index for edges of `G`
 
     Returns
     -------
-    u : :obj:`int`
-        First node ID for the edge along which the closest point is located
-    v : :obj:`int`
-        Second node ID for the edge along which the closest point is located
-    key : :obj:`int`
-        Key for the edge along which the closest point is located
-    point : :class:`shapely.geometry.Point`
+    closest_point : :class:`shapely.geometry.Point`
         Location of closest point
+    index : :obj:`tuple`
+        Index for the closest edge (u, v, key) or (u, v)
+    distance : :obj:`float`
+        Distance from the search_point to the closest edge    
     """
-    # extract edge indices and geometries from the graph
-    edge_IDs = [i for i in G.edges]
-    edge_geometries = [data['geometry'] for _, _, data in G.edges(data=True)]
-    if edges_sindex is None:
-        line_index = [data['geometry'] for _, _, data in G.edges(data=True)]
-    # find the closest point for connection along the network 
-    edge_ID, point = closest_point_along_lines(search_point, edge_geometries, 
-        search_distance=search_distance, linestrings_sindex=edges_sindex)
-    if edge_ID is not None:
-        try: # will not return key if the network is DiGraph
-            u, v  = edge_IDs[edge_ID]
-            return u, v, None, point
-        except:
-            pass
-        try: # will return key if network is MultiDiGraph
-            u, v, key  = edge_IDs[edge_ID]
-            return u, v, key, point
-        except:
-            return None, None, None, None
+    if sindex:
+        if not search_distance:
+            raise ValueError('Must specify search_distance if using spatial index')
+        # Construct search bounds around the search point
+        search_bounds = search_point.buffer(search_distance).bounds
+        # Get indices for edges that intersect the search bounds
+        edge_indices = [x for x in sindex.intersection(search_bounds, 
+                                                       objects='raw')]
+        # Collect geometries that intersect the search bounds
+        if nx.is_directed(G):
+            edge_geometries = [G.get_edge_data(u, v, key)['geometry'] 
+                                for u, v, key in edge_indices]
+        else:
+            edge_geometries = [G.get_edge_data(u, v)['geometry'] 
+                                for u, v in edge_indices]
+        # Construct list of edges as (index, geometry) tuples
+        edges = list(zip(edge_indices, edge_geometries))
+    elif search_distance:
+        # Construct search bounds around the search point
+        search_area = search_point.buffer(search_distance)
+        # Collect edges that intersect the search area as (index, geometry) tuples
+        if nx.is_directed(G):
+            edges = G.edges(keys=True, data='geometry')
+            edges = [((u, v, key), geometry) for u, v, key, geometry
+                     in edges if geometry.intersects(search_area)]
+        else:
+            edges = G.edges(data='geometry')
+            edges = [((u, v), geometry) for u, v, geometry
+                     in edges if geometry.intersect(search_area)]
     else:
-        return None, None, None, None
+        # Collect all edges as (index, geometry) tuples
+        if nx.is_directed(G):
+            edges = G.edges(keys=True, data='geometry')
+            edges = [((u, v, key), geometry) for u, v, key, geometry in edges]
+        else:
+            edges = G.edges(data='geometry')
+            edges = [((u, v), geometry) for u, v, geometry in edges]
+    # Feed edges to general function for finding closest point among lines
+    return closest_point_along_lines(search_point, edges)
 
 
 def insert_node(G, u, v, node_point, node_name, key = None):
@@ -233,9 +246,14 @@ def graph_sindex(G):
         Spatial index
     """
     idx = index.Index()
-    geometries = G.edges(data='geometry')
-    for i, (u, v, geom) in enumerate(geometries):
-        idx.insert(i, geom.bounds, (u, v))
+    if nx.is_directed(G):
+        edges = G.edges(keys=True, data='geometry')
+        for i, (u, v, key, geometry) in enumerate(edges):
+            idx.insert(i, geometry.bounds, (u, v, key))
+    else:
+        edges = G.edges(data='geometry')
+        for i, (u, v, geometry) in enumerate(edges):
+            idx.insert(i, geometry.bounds, (u, v))
     return idx
 
 
