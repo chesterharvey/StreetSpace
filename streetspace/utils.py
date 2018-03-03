@@ -253,7 +253,29 @@ def df_last_column(df, column_name):
     return df.loc[:, cols]
 
 
-def assure_path_exists(path):
-    dir = os.path.dirname(path)
-    if not os.path.exists(dir):
-        os.makedirs(dir)
+def first(list_to_summarize):
+    """Get the first item in a list.
+    """
+    return input_list[0]
+
+def last(list_to_summarize):
+    """Get the last item in a list.
+    """
+    return input_list[-1]
+
+def middle(list_to_summarize):
+    """Get the middle item in a list.
+    """
+    return input_list[len(test) // 2]
+
+def concatenate(list_to_summarize, separator=', '):
+    """Concatenate strings in a list.
+
+    List items that are not strigns will be converted to strings.
+    """
+    for i, x in enumerate(list_to_summarize):
+        if not isinstance(x, str):
+            list_to_summarize[i] = str(x)
+    return separator.join(list_to_summarize)
+
+

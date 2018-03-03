@@ -880,6 +880,39 @@ def plot_shapes(shapes, show_axes=False):
     plt.show()
 
 
+def intersect_shapes(shapes_a, shapes_b, shapes_b_sindex=None):
+    """Find intersections between shapes in two lists
+
+    Parameters
+    ----------
+    shapes_a : list of Shapely geometries
+        List of geometries to be intersected with those in shapes_b
+    shapes_b : list of Shapely geometries
+        List of geometries to be intersected with those in shapes_a
+    shapes_b_sindex : :class:`rtree.index.Index`, optional, default = ``None``
+        Spatial index for shapes_b (best created with ``list_sindex``)
+
+    Returns
+    -------
+    :obj:`list`
+        List of tuples for each intersection with structure:\
+        (a_index, b_index, intersection_geometry)
+    """
+    intersections = []
+    for i, shape_a in enumerate(shapes_a):
+        indices_b = list(range(len(shapes_b)))
+        if shapes_b_sindex:
+            b_for_analysis = [(indices_b[i], shapes_b[i]) for i in 
+                              shapes_b_sindex.intersection(shape_a.bounds)]#, objects='raw')]
+        else:
+            b_for_analysis = zip(indices_b, shapes_b)       
+        for j, shape_b in b_for_analysis:
+            if shape_a.intersects(shape_b):
+                intersection = shape_a.intersection(shape_b)
+                intersections.append((i, j, intersection))
+    return intersections
+
+
 
 
 
