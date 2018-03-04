@@ -8,16 +8,17 @@
 
 import shapely as sh
 import numpy as np
+import matplotlib.pyplot as plt
+import geopandas as gpd
+import pandas as pd
 from shapely.ops import linemerge
 from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
     Polygon, MultiPolygon, GeometryCollection)
 from math import radians, cos, sin, asin, sqrt, ceil
-import geopandas as gpd
 from geopandas import GeoDataFrame
-import pandas as pd
 from rtree import index
 from itertools import cycle
-import matplotlib.pyplot as plt
+from pprint import pprint
 
 from .utils import *
 
@@ -278,7 +279,12 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
             tuples = False
     # If not indexed tuples, create them
     if tuples is False:
-        lines = [(i, x) for i, x in enumerate(lines)]
+        line_tuples = [(i, x) for i, x in enumerate(lines)]
+    else:
+        line_tuples = lines
+        
+    # print(line_tuples)
+
     # Pare down lines, if spatial index provided
     if sindex:
         if not search_distance:
@@ -289,28 +295,64 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
         line_indices = [i for i in sindex.intersection(search_bounds, 
                                                        objects='raw')]
         # Get pared lines
-        lines = [lines[i] for i in line_indices]
+        line_tuples = [line_tuples[i] for i in line_indices]
     # Pare down lines, if only search distance provided
     elif search_distance:
         # Construct search bounds around the search point
         search_area = search_point.buffer(search_distance)
         # Get pared IDs
-        lines = [line for line in lines if line[1].intersects(search_area)]    
+        line_tuples = [line_tuple for line_tuple in line_tuples if 
+                       line_tuple[1].intersects(search_area)]
+
     # Calculate the distance between the search point and each line   
     distances = []
-    for _, line in lines:
+    for _, line in line_tuples:
         distances.append(search_point.distance(line))    
-    # Find closest line
+    
     if len(distances) > 0:
-        distance, (i, line) = min((distance, i) for (i, distance) in 
-                                  zip(lines, distances))
+
+        if len(distances) == 1:
+
+            i, line = line_tuples[0]
+            distance = distances[0]
+        
+        elif len(distances) > 1:
+            # Find closest line
+
+            line_tuples = np.asarray(line_tuples, dtype='object')
+            distaces = np.asarray(distances, dtype='float')
+            distance_array = np.column_stack((distances, line_tuples))
+            distance_array = distance_array[distance_array[:,1].argsort()]
+
+            distance = distance_array[0,0]
+            i = distance_array[0,1]
+            line = distance_array[0,2]
+
+            # tups = list(zip(distances, line_tuples))
+
+            # print('gap')
+            # pprint(tups)
+
+            # tups.sort()
+            # distances, line_tuples = zip(*tups)
+            # i, line = line_tuples[0]
+            # distance = distances[0]
+
+            # distances, line_tuples = zip(*sorted(zip(distances, line_tuples)))
+            # i, line = line_tuples[0]
+            # distance = distances[0]
+
+            # distance, line_tuple = min((distance, line_tuple) for (line_tuple, distance) in 
+            #                           zip(line_tuples, distances))
+            # i, line = line_tuple
+
         # Find the nearest point along that line
         closest_point = line.interpolate(line.project(search_point))
         return closest_point, i, distance
+    
     # If no lines within search distance, return nothing
     else:
         return None, None, None
-
 
 def list_sindex(geometries):
     """Create a spatial index for a list of geometries.

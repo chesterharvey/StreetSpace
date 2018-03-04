@@ -416,7 +416,7 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
 #         return unplaced_points
 
 
-def graph_sindex(G):
+def graph_sindex(G, save_path=None):
     """Create a spatial index from a graph with geometry attributes.
 
     Parameters
@@ -429,7 +429,10 @@ def graph_sindex(G):
     :class:`rtree.index.Index`
         Spatial index
     """
-    idx = index.Index()
+    if save_path:
+        idx = index.Index(save_path)
+    else:
+        idx = index.Index()
     if isinstance(G, (MultiGraph, MultiDiGraph)):
         edges = G.edges(keys=True, data='geometry')
         for i, (u, v, key, geometry) in enumerate(edges):
@@ -438,6 +441,8 @@ def graph_sindex(G):
         edges = G.edges(data='geometry')
         for i, (u, v, geometry) in enumerate(edges):
             idx.insert(i, geometry.bounds, (u, v))
+    if save_path:
+        idx.close
     return idx
 
 
@@ -560,3 +565,24 @@ def collect_route_attributes(route, G, summaries):
         collected_summaries[attribute] = summary_function(attribute_list)                  
     return collected_attributes, collected_summaries
 
+
+def route_geometry(geometries):
+    """Collect geometries of edges along route. Return None if no edges.
+
+    """
+    if len(geometries) > 0:
+        x = MultiLineString(geometries)
+        return x
+    else:
+        return None
+
+
+def route_length(lengths):
+    """Collect lengths of edges along route. Return None if no edges.
+
+    """
+    if len(lengths) > 0:
+        x = sum(lengths)
+        return x
+    else:
+        return np.inf

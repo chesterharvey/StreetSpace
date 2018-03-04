@@ -256,17 +256,17 @@ def df_last_column(df, column_name):
 def first(list_to_summarize):
     """Get the first item in a list.
     """
-    return input_list[0]
+    return list_to_summarize[0]
 
 def last(list_to_summarize):
     """Get the last item in a list.
     """
-    return input_list[-1]
+    return list_to_summarize[-1]
 
 def middle(list_to_summarize):
     """Get the middle item in a list.
     """
-    return input_list[len(test) // 2]
+    return list_to_summarize[len(test) // 2]
 
 def concatenate(list_to_summarize, separator=', '):
     """Concatenate strings in a list.
