@@ -255,8 +255,9 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
     ----------
     search_point : :class:`shapely.geometry.Point`
         Point from which to search
-    linestrings : :obj:`list` 
-        Lines to search. Must contain :class:`shapely.geometry.LineString`
+    lines : :obj:`list` 
+        Lines to search. Must be either a list of linestrings or a list of\
+        (index, linestring) tuples, if linestrings have predifined indices
     search_distance : :obj:`float`, optional, default = ``None``
         Maximum distance to search from the `search_point`
     sindex : :class:`rtree.index.Index`, optional, default = ``None``
@@ -273,18 +274,18 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
     """
     # Check whether lines are formatted as a list of tuples, with indices
     # in the first positions and geometries in the second positions
+    
     tuples = True
     for line in lines:
         if not isinstance(line, tuple):
             tuples = False
+
     # If not indexed tuples, create them
     if tuples is False:
         line_tuples = [(i, x) for i, x in enumerate(lines)]
     else:
         line_tuples = lines
         
-    # print(line_tuples)
-
     # Pare down lines, if spatial index provided
     if sindex:
         if not search_distance:
@@ -296,16 +297,18 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
                                                        objects='raw')]
         # Get pared lines
         line_tuples = [line_tuples[i] for i in line_indices]
+    
     # Pare down lines, if only search distance provided
     elif search_distance:
         # Construct search bounds around the search point
         search_area = search_point.buffer(search_distance)
         # Get pared IDs
         line_tuples = [line_tuple for line_tuple in line_tuples if 
-                       line_tuple[1].intersects(search_area)]
-
+                       line_tuple[-1].intersects(search_area)]
+   
     # Calculate the distance between the search point and each line   
-    distances = []
+    distances = []   
+
     for _, line in line_tuples:
         distances.append(search_point.distance(line))    
     
@@ -318,33 +321,13 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
         
         elif len(distances) > 1:
             # Find closest line
-
             line_tuples = np.asarray(line_tuples, dtype='object')
-            distaces = np.asarray(distances, dtype='float')
+            distances = np.asarray(distances, dtype='float')
             distance_array = np.column_stack((distances, line_tuples))
-            distance_array = distance_array[distance_array[:,1].argsort()]
-
+            distance_array = distance_array[distance_array[:,0].argsort()]
             distance = distance_array[0,0]
             i = distance_array[0,1]
             line = distance_array[0,2]
-
-            # tups = list(zip(distances, line_tuples))
-
-            # print('gap')
-            # pprint(tups)
-
-            # tups.sort()
-            # distances, line_tuples = zip(*tups)
-            # i, line = line_tuples[0]
-            # distance = distances[0]
-
-            # distances, line_tuples = zip(*sorted(zip(distances, line_tuples)))
-            # i, line = line_tuples[0]
-            # distance = distances[0]
-
-            # distance, line_tuple = min((distance, line_tuple) for (line_tuple, distance) in 
-            #                           zip(line_tuples, distances))
-            # i, line = line_tuple
 
         # Find the nearest point along that line
         closest_point = line.interpolate(line.project(search_point))
