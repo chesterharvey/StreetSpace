@@ -246,9 +246,9 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
                 add_new_edge(G, (node_name, reverse[1], 0), 
                     segment(original_geom, node_point, endpoints(reverse_geometry)[1]),
                     attrs, sindex=sindex)
-
             else:
-                print('reverse FAILED equivalency test. edge: {}, reverse: {}'.format(edge, reverse))
+                if verbose:
+                    print('Edge {} and its reverse ({}) are not alinged.'.format(edge, reverse))
 
 
 def search_sindex_items(sindex, search_bounds=None, bbox=False):
