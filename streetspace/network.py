@@ -154,122 +154,8 @@ def lookup_sindex_id(object, items=None, sindex=None, search_bounds=None):
             items if edge_id == object][0]
 
 
-# def insert_node_along_edge(G, edge, node_point, node_name, both_ways=False, 
-#     sindex=None, next_sindex_id=None, verbose=False):
-#     """Insert a node along an edge with a geometry attribute.
-
-#     ``edge`` must have a LineString geometry attribute
-#     which will be split at the location of the new node.
-
-#     If `G` is :class:`networkx.DiGraph` or :class:`networkx.MultiDiGraph`,
-#     the new node will split edges in both directions.
-
-#     Parameters
-#     ----------
-#     G : :class:`networkx.Graph`, :class:`networkx.DiGraph`,\
-#     :class:`networkx.MultiGraph` or :class:`networkx.MultiDiGraph`
-#         Graph into which new node will be inserted. Each edge of `G` must\
-#         have a :class:`shapely.geometry.LineString` geometry attribute.
-#     edge : :obj:`tuple`
-#         * if G is Graph or DiGraph: (u, v)
-#         * if G is MultiGraph or MultiDiGraph: (u, v, key)
-#     node_point : :class:`shapely.geometry.Point`
-#         Geometric location of new node
-#     node_name : :obj:`str`
-#         Name for new node
-#     both_ways : :obj:`bool`, optional, default = ``False``
-#         Specifies whether a node will also be inserted into an edge in the\
-#         opposite direction 
-#     sindex : rtree index
-#         Spatial index for G (best created with graph_sindex). If specified,\
-#         this index will be updated appropriatly when edges are added or\
-#         removed from ``G``.
-#     """  
-#     if sindex:
-#         if next_sindex_id is None:
-#             # Get maximum id in the sindex; new edges will be added above this
-#             max_id = max([x for x in sindex.intersection(sindex.bounds)])
-#             next_sindex_id = max_id + 1
-#             if verbose:
-#                 print('next index created by insert_node_along_edge')
-    
-#     # Add new node
-#     new_node_attrs = {'geometry': node_point, 
-#                       'x': node_point.x,
-#                       'y': node_point.y,
-#                       'osmid': 000000000}
-#     G.add_node(node_name, **new_node_attrs)
-#     # Get attributes from existing edge
-#     attrs = G.get_edge_data(*edge)
-#     original_geom = attrs['geometry']
-#     # Delete existing edge
-#     if verbose:
-#         print('removing edge {} from graph index {}'.format(edge, lookup_sindex_id(edge, sindex=sindex)))
-#     delete_edge(G, edge, node_point, sindex=sindex)       
-#     if verbose:
-#         print('adding first forward edge {} to graph index {}'.format((edge[0], node_name, 0), next_sindex_id))
-#     # Add new edges
-#     next_sindex_id = add_new_edge(G, (edge[0], node_name, 0), 
-#                 segment(original_geom, endpoints(original_geom)[0], node_point),
-#                 attrs, sindex=sindex, next_sindex_id=next_sindex_id)
-#     if verbose:
-#         print('next index: {}'.format(next_sindex_id))
-#         print('adding second forward edge {} to graph index {}'.format((node_name, edge[1], 0), next_sindex_id))
-#     next_sindex_id = add_new_edge(G, (node_name, edge[1], 0), 
-#                 segment(original_geom, node_point, endpoints(original_geom)[1]),
-#                 attrs, sindex=sindex, next_sindex_id=next_sindex_id)
-#     if verbose:
-#         print('next index: {}'.format(next_sindex_id))
-#     if both_ways:
-#         # Flip the start and end node
-#         reverse = tuple(reverse_edge(edge))
-#         # Check whether reverse edge in graph
-#         if G.has_edge(*reverse):
-#             # See if their lengths are similar
-#             reverse_geometry = G.get_edge_data(*reverse)['geometry']
-#             if original_geom.length == 0 and reverse_geometry.length == 0:
-#                 equal = True
-#             elif reverse_geometry.length != 0 and original_geom.length > 1:
-#                 equal = False
-#             elif 0.9 < (original_geom.length / reverse_geometry.length) < 1.1:
-#                 equal = True
-#             else:
-#                 equal = False
-#             if equal:
-#                 # See if their midpoints are the same:
-#                 edge_midpoint = midpoint(original_geom)
-#                 reverse_midpoint = midpoint(reverse_geometry)
-#                 if edge_midpoint.buffer(5).intersects(reverse_midpoint):
-#                     if verbose:
-#                         print('forward edge and reverse edge passed similarity test')
-#                     # Get attributes for the reverse edge
-#                     attrs = G.get_edge_data(*reverse)
-#                     original_geom = attrs['geometry']
-#                     if verbose:    
-#                         print('removing reverse edge {} from graph index {}'.format(reverse, lookup_sindex_id(reverse, sindex=sindex)))    
-#                     delete_edge(G, reverse, node_point, sindex=sindex)
-#                     # Add new edges
-#                     if verbose:
-#                         print('adding first reverse edge {} to graph index {}'.format((reverse[0], node_name, 0), next_sindex_id))
-#                         print('next index right before first reverse edge: {}'.format(next_sindex_id))
-#                     next_sindex_id = add_new_edge(G, (reverse[0], node_name, 0), 
-#                         segment(original_geom, endpoints(original_geom)[1], node_point),
-#                         attrs, sindex=sindex, next_sindex_id=next_sindex_id)
-#                     if verbose:
-#                         print('next index: {}'.format(next_sindex_id))
-#                         print('adding second reverse edge {} to graph index {}'.format((node_name, reverse[1], 0), next_sindex_id))
-#                     next_sindex_id = add_new_edge(G, (node_name, reverse[1], 0), 
-#                         segment(original_geom, node_point, endpoints(original_geom)[0]),
-#                         attrs, sindex=sindex, next_sindex_id=next_sindex_id)
-#                     if verbose:
-#                         print('next index: {}'.format(next_sindex_id))
-#     if verbose:
-#         print('next index returned by insert_node_along_edge: {}'.format(next_sindex_id))
-#     return next_sindex_id
-
-
-def insert_node_along_edge(G, edge, node_point, node_name, both_ways=False, 
-    sindex=None, verbose=False):
+def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
+    both_ways=False, sindex=None, verbose=False):
     """Insert a node along an edge with a geometry attribute.
 
     ``edge`` must have a LineString geometry attribute
@@ -328,10 +214,17 @@ def insert_node_along_edge(G, edge, node_point, node_name, both_ways=False,
         reverse = tuple(reverse_edge(edge))
         # Check whether reverse edge in graph
         if G.has_edge(*reverse):           
-            # See if they follow the same path:
+            # See if the two edges are similar:
             reverse_geometry = G.get_edge_data(*reverse)['geometry']
-            edge_buffer = original_geom.buffer(1)
-            if reverse_geometry.within(edge_buffer):
+            reverse_midpoint = midpoint(reverse_geometry)
+            reverse_length = reverse_geometry.length
+            edge_midpoint = midpoint(original_geom)
+            edge_length = original_geom.length
+            if (edge_midpoint.almost_equals(edge_midpoint, 0) and 
+                (0.95 < (edge_length/reverse_length) < 1.05)):
+
+            # edge_buffer = original_geom.buffer(1)
+            # if reverse_geometry.within(edge_buffer):
 
                 print('reverse passed equivalency test')
 
@@ -372,7 +265,7 @@ def search_sindex_items(sindex, search_bounds=None, bbox=False):
 
 
 def connect_points_to_closest_edges(G, points, search_distance=None, 
-    sindex=None, return_unplaced=False, points_to_nodes=True, verbose=False):
+    sindex=None, points_to_nodes=True, verbose=False):
     """Connect points to a graph by inserting a node along their closest edge.
 
     G : :class:`networkx.Graph`, :class:`networkx.DiGraph`,\
@@ -410,14 +303,24 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
 
     # Make list to record unplaced points
     unplaced_points =[]
+    # Make a dictionary for mapping alias node names
+    node_aliases = {}
+    
+    # Make a spatial index for the nodes
+    nodes = {i: Point(data['x'], data['y']) for (i, data) in G.nodes(data=True)}
+    def generator(nodes):
+        for i, (name, point) in enumerate(nodes.items()):
+            yield (i+1, point.bounds, name)
+    nodes_index = index.Index(generator(nodes))
+    # next_id = nodes_index.count(nodes_index.bounds) + 1
+    
     # u_point refers to the off-the-graph point which is being connected
-    # v_point refers to the on-graph point where the connection is made 
+    # v_point refers to the on-graph point where the connection is made
+    
     for name, u_point in points:
-
         if points_to_nodes:
             u_name = name
-            link_name = '{}_link'.format(name)
-            v_name = link_name
+            v_name = '{}_link'.format(name)
         else:
             v_name = name
         # Find the closest point suitable for connection along the network
@@ -437,24 +340,40 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
             u_point, G, search_distance=search_distance, 
             sindex=sindex, restrictions=restrictions, verbose=verbose)
         if v_point:
-            if G.has_edge(*edge):
-                # if verbose:
-                #     print('graph len before insert: {}'.format(len(G.edges())))
-                #     print('index len before insert: {}'.format(len(search_sindex_items(sindex))))
-                # next_sindex_id = insert_node_along_edge(
-                #     G, edge, v_point, v_name, both_ways=True, sindex=sindex, 
-                #     next_sindex_id=next_sindex_id)
-                insert_node_along_edge(
-                    G, edge, v_point, v_name, both_ways=True, sindex=sindex)
-                # if verbose:
-                #     print('next index received from insert_node_along_edge: {}'.format(next_sindex_id))
-                #     print('graph len after insert: {}'.format(len(G.edges())))
-                #     print('index len after insert: {}'.format(len(search_sindex_items(sindex))))
+            
+            start = time()
+            node_check_time = 0
 
-            # If off-the-graph points are being inserted into the graph as
-            # nodes, add them and connecting edges
+            # See if v_point is the same as an existing graph node
+            node_points = {i: Point(data['x'], data['y'])
+                           for (i, data) in G.nodes(data=True)}
+            node_already_exists = False
+            # Get closest existing node
+            closest_node = [x.object for x in nodes_index.nearest(
+                v_point.bounds, objects=True)][0]
+            closest_node_point = Point(
+                G.node[closest_node]['x'], G.node[closest_node]['y'])
+            if v_point.almost_equals(closest_node_point, 0): # Within a meter
+                print('overlapping nodes: {} and {}'.format(v_name, closest_node))
+                node_already_exists = True
+                node_aliases[v_name] = closest_node
+                v_name = closest_node
+            
+            node_check_time = node_check_time + (time()-start)
+            
+            if not node_already_exists:
+                # If proposed node is farther, insert it into the graph 
+                if not G.has_edge(*edge):
+                    unplaced_points.append((name, u_point))
+                else:
+                    insert_node_along_edge(
+                        G, edge, v_point, v_name, both_ways=True, sindex=sindex)
+                    # Insert the node into the spatial index
+                    nodes_index.insert(0, v_point.bounds, v_name)
+                    # next_id += 1
+            # Connect u_point to the graph
             if points_to_nodes:
-                # Add a node to the side of the current graph
+                # Add a node at the location of u_point and edges to link it
                 attrs = {'geometry': u_point,
                          'x': u_point.x,
                          'y': u_point.y}
@@ -468,7 +387,6 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
                 add_new_edge(G, (u_name, v_name, 0), 
                             LineString([u_point, v_point]),
                             sindex=sindex)
-                
                 if nx.is_directed(G):
                     # next_sindex_id = add_new_edge(G, (v_name, u_name, 0), 
                     #     LineString([v_point, u_point]),
@@ -477,11 +395,14 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
                     #     print('next index: {}'.format(next_sindex_id))
                     add_new_edge(G, (v_name, u_name, 0), 
                         LineString([v_point, u_point]),
-                        sindex=sindex)      
+                        sindex=sindex)
         else:
-            unplaced_points.append((u_name, u_point))           
-    if return_unplaced:
-        return unplaced_points
+            unplaced_points.append((name, u_point))
+    
+    print(node_check_time)
+    
+    nodes_index = None
+    return unplaced_points, node_aliases
 
 
 def seperate_edge_index_and_geom(edge):
@@ -694,12 +615,19 @@ def route_between_points(points, G, summaries=None, search_distance=None,
     # Add unique points to graph as nodes
     named_unique_points = list(zip(unique_names, unique_points))
     
-    unplaced_points = connect_points_to_closest_edges(
+    unplaced_points, node_aliases = connect_points_to_closest_edges(
         G=G, points=named_unique_points, search_distance=search_distance, 
-        sindex=sindex, return_unplaced=True, points_to_nodes=points_to_nodes,
+        sindex=sindex, points_to_nodes=points_to_nodes,
         verbose=verbose)
     if verbose:
         print('{} points placed on edges'.format(len(named_unique_points)-len(unplaced_points)))
+    connect_points_to_closest_edges
+    print(node_aliases)
+
+    # Replace points names with any aliases 
+    a_names = [node_aliases[x] if x in node_aliases else x for x in a_names]
+    b_names = [node_aliases[x] if x in node_aliases else x for x in b_names]
+
     # Route between point pairs
     routing_pairs = list(zip(a_names, b_names))
     routes = route_node_pairs(routing_pairs, G, weight=weight, both_ways=both_ways)
