@@ -226,7 +226,7 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
             # edge_buffer = original_geom.buffer(1)
             # if reverse_geometry.within(edge_buffer):
 
-                print('reverse passed equivalency test')
+                # print('reverse passed equivalency test')
 
                 if verbose:
                     print('forward edge and reverse edge passed similarity test')
@@ -294,29 +294,17 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
     :obj:`list`
         Points not connected to the graph (if ``return_unplaced`` is ``True``)
     """
-    # if sindex:
-    #     # Get maximum id in the sindex; new edges will be added above this
-    #     max_id = max([x for x in sindex.intersection(sindex.bounds)])
-    #     next_sindex_id = max_id + 1
-    #     if verbose:
-    #         print('next index: {}; created by connect_points_to_closest_edges'.format(next_sindex_id))
-
     # Make list to record unplaced points
     unplaced_points =[]
     # Make a dictionary for mapping alias node names
     node_aliases = {}
     
-    # Make a spatial index for the nodes
-    nodes = {i: Point(data['x'], data['y']) for (i, data) in G.nodes(data=True)}
-    def generator(nodes):
-        for i, (name, point) in enumerate(nodes.items()):
-            yield (i+1, point.bounds, name)
-    nodes_index = index.Index(generator(nodes))
-    # next_id = nodes_index.count(nodes_index.bounds) + 1
-    
+    if verbose:
+        node_check_time = 0
+        draw_connector_time = 0
+        insert_node_time = 0
     # u_point refers to the off-the-graph point which is being connected
-    # v_point refers to the on-graph point where the connection is made
-    
+    # v_point refers to the on-graph point where the connection is made   
     for name, u_point in points:
         if points_to_nodes:
             u_name = name
@@ -324,7 +312,6 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
         else:
             v_name = name
         # Find the closest point suitable for connection along the network
-        
         def low_stress_highway(data):
             low_stress = ['cycleway','residential','unclassified','tertiary',
                           'secondary','primary']
@@ -333,34 +320,33 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
                 return any(h in low_stress for h in listify(data['highway']))
             else:
                 return False
-        
         restrictions = [low_stress_highway]
-        
         v_point, edge, _ = closest_point_along_network(
             u_point, G, search_distance=search_distance, 
             sindex=sindex, restrictions=restrictions, verbose=verbose)
         if v_point:
-            
-            start = time()
-            node_check_time = 0
-
+            if verbose:
+                node_check_start = time()
             # See if v_point is the same as an existing graph node
-            node_points = {i: Point(data['x'], data['y'])
-                           for (i, data) in G.nodes(data=True)}
             node_already_exists = False
-            # Get closest existing node
-            closest_node = [x.object for x in nodes_index.nearest(
-                v_point.bounds, objects=True)][0]
-            closest_node_point = Point(
-                G.node[closest_node]['x'], G.node[closest_node]['y'])
-            if v_point.almost_equals(closest_node_point, 0): # Within a meter
-                print('overlapping nodes: {} and {}'.format(v_name, closest_node))
+            # Get nearby nodes from edges sindex
+            nearby_edges = [x.object for x in 
+                sindex.intersection(v_point.buffer(10).bounds, objects=True)]
+            nearby_nodes = list(set([x for edge in nearby_edges
+                for x in edge[1:2]]))
+            nearby_points = [Point(G.node[node]['x'], G.node[node]['y'])
+                for node in nearby_nodes]
+            distances = [point.distance(v_point) for point in nearby_points]
+            min_index = distances.index(min(distances))
+            min_distance = min(distances)
+            min_id = nearby_nodes[min_index]
+            if min_distance < 1:               
                 node_already_exists = True
-                node_aliases[v_name] = closest_node
-                v_name = closest_node
-            
-            node_check_time = node_check_time + (time()-start)
-            
+                node_aliases[v_name] = min_id
+                v_name = min_id
+            if verbose:
+                node_check_time += (time()-node_check_start)
+                insert_node_start = time()
             if not node_already_exists:
                 # If proposed node is farther, insert it into the graph 
                 if not G.has_edge(*edge):
@@ -368,9 +354,9 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
                 else:
                     insert_node_along_edge(
                         G, edge, v_point, v_name, both_ways=True, sindex=sindex)
-                    # Insert the node into the spatial index
-                    nodes_index.insert(0, v_point.bounds, v_name)
-                    # next_id += 1
+            if verbose:
+                insert_node_time += (time()-insert_node_start)
+                draw_connector_start = time()
             # Connect u_point to the graph
             if points_to_nodes:
                 # Add a node at the location of u_point and edges to link it
@@ -379,29 +365,22 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
                          'y': u_point.y}
                 G.add_node(u_name, **attrs)
                 # Add an edge connecting it to the previously inserted point
-                # next_sindex_id = add_new_edge(G, (u_name, v_name, 0), 
-                #             LineString([u_point, v_point]),
-                #             sindex=sindex, next_sindex_id=next_sindex_id)
-                # if verbose:
-                #     print('next index: {}'.format(next_sindex_id))
                 add_new_edge(G, (u_name, v_name, 0), 
                             LineString([u_point, v_point]),
                             sindex=sindex)
                 if nx.is_directed(G):
-                    # next_sindex_id = add_new_edge(G, (v_name, u_name, 0), 
-                    #     LineString([v_point, u_point]),
-                    #     sindex=sindex, next_sindex_id=next_sindex_id)
-                    # if verbose:
-                    #     print('next index: {}'.format(next_sindex_id))
                     add_new_edge(G, (v_name, u_name, 0), 
                         LineString([v_point, u_point]),
                         sindex=sindex)
+            if verbose:
+                draw_connector_time += (time()-draw_connector_start)
         else:
             unplaced_points.append((name, u_point))
-    
-    print(node_check_time)
-    
-    nodes_index = None
+    if verbose:
+        print('node check time: {}'.format(node_check_time))
+        print('insert node time: {}'.format(insert_node_time))
+        print('draw connector time: {}'.format(draw_connector_time))
+    nodes_sindex = None
     return unplaced_points, node_aliases
 
 
@@ -472,7 +451,7 @@ def make_graph_sindex(G, path=None, load_existing=False, open_copy=False):
         # Construct index into the path
         edges = G.edges(keys=True, data='geometry')
         idx = index.Index(path, generator(edges))#, properties = p)
-        # Close the file to finish writing
+        # Close the file to complete writing process
         idx.close()
         # Reopen the serialized index, either original or temp copy
         return load_index(path, open_copy=open_copy) 
@@ -614,30 +593,26 @@ def route_between_points(points, G, summaries=None, search_distance=None,
     
     # Add unique points to graph as nodes
     named_unique_points = list(zip(unique_names, unique_points))
-    
+    if verbose:
+        chunk_time = time()
     unplaced_points, node_aliases = connect_points_to_closest_edges(
         G=G, points=named_unique_points, search_distance=search_distance, 
         sindex=sindex, points_to_nodes=points_to_nodes,
         verbose=verbose)
     if verbose:
+        print('connect to edges time: {}'.format(time()-chunk_time))
+        chunk_time = time()
         print('{} points placed on edges'.format(len(named_unique_points)-len(unplaced_points)))
-    connect_points_to_closest_edges
-    print(node_aliases)
-
     # Replace points names with any aliases 
     a_names = [node_aliases[x] if x in node_aliases else x for x in a_names]
     b_names = [node_aliases[x] if x in node_aliases else x for x in b_names]
-
     # Route between point pairs
     routing_pairs = list(zip(a_names, b_names))
     routes = route_node_pairs(routing_pairs, G, weight=weight, both_ways=both_ways)
     if verbose:
+        print('routing time: {}'.format(time()-chunk_time))
+        chunk_time = time()
         print('{} routes found'.format(len(routes)))
-    """
-    Do something with unrouted pairs
-    """
-    unrouted_pairs = [(i, x) for i, x in enumerate(routes) if isinstance(x, str)]
-    
     # Define default summaries
     if summaries is None:
         summaries = {'geometry': route_geometry,
@@ -652,6 +627,8 @@ def route_between_points(points, G, summaries=None, search_distance=None,
     for route in routes:
         _, summary = collect_route_attributes(route, G, summaries)
         route_summaries = route_summaries.append(summary, ignore_index=True)  
+    if verbose:
+        print('summary time: {}'.format(time()-chunk_time))
     # Concatinate with original points and organize columns
     return_dataframe = pd.concat([points, route_summaries], axis=1) 
     front = points_order
@@ -659,7 +636,9 @@ def route_between_points(points, G, summaries=None, search_distance=None,
     remaining = [x for x in list(return_dataframe) if x not in front + back]
     return_dataframe = return_dataframe[front + remaining + back]
     return_dataframe = return_dataframe.rename(columns={'geometry': 'route'})
-    return return_dataframe
+    unrouted_pairs = [(i, x) for i, x in enumerate(routes) if isinstance(x, str)]
+    return return_dataframe, unrouted_pairs
+
 
 def collect_route_attributes(route, G, summaries):
     """Collect attributes of edges along a route defined by nodes.
