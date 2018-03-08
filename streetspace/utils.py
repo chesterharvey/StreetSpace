@@ -7,6 +7,24 @@
 import numpy as np
 import subprocess
 
+def listify(x):
+    """Puts non-list objects into a list. 
+
+    Parameters
+    ----------
+    x: Object to ensure is list
+    
+    Returns
+    ----------
+    :obj:`list`
+        If ``x`` is already a list, this is returned. Otherwise, a list\
+        containing ``x`` is returned.
+    """
+    if isinstance(x, list):
+        return x
+    else:
+        return [x]
+
 def bash_command(command, verbose=False):
     """
     Executes a bash command passed as a string
