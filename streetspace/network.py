@@ -16,13 +16,13 @@ from networkx import Graph, DiGraph, MultiGraph, MultiDiGraph
 from time import time
 from pandas import DataFrame
 from geopandas import GeoDataFrame
-
+from collections import OrderedDict
 
 from .geometry import *
 
 
 def closest_point_along_network(search_point, G, search_distance=None, 
-    sindex=None, restrictions=None, verbose = False):
+    sindex=None, accessibility_functions=None, verbose = False):
     """
     Find the closest point along the edges of a NetworkX graph with Shapely 
     LineString geometry attributes in the same coordinate system.
@@ -51,8 +51,8 @@ def closest_point_along_network(search_point, G, search_distance=None,
     sindex : :class:`rtree.index.Index`, optional, default = ``None``
         Spatial index for edges of `G`
     restrictions: :obj:`list`
-        List of functions used to restrict edges on which closest point may\
-        be located. Functions must have a single argument that accepts the\
+        Function used to restrict edges on which closest point may\
+        be located. Function must have a single argument that accepts the\
         attribute dictionary for each edge (produced by  ``G.get_edge_data``)\
         and must return ``True`` or ``False``. See above for example function.
 
@@ -95,10 +95,11 @@ def closest_point_along_network(search_point, G, search_distance=None,
         edges = G.edges(keys=True, data='geometry')
         edges_tuples = [seperate_edge_index_and_geom(edge) for edge in edges]
     # Pare down edges based on further criteria
-    if restrictions:
-        for function in restrictions:
-            edge_tuples = [edge_tuple for edge_tuple in edge_tuples
-                           if function(G.get_edge_data(*edge_tuple[0]))]
+    if accessibility_functions:
+        edge_tuples = [edge_tuple for edge_tuple in edge_tuples
+                       if _flag_accessible(
+                           G.get_edge_data(*edge_tuple[0]), 
+                           accessibility_functions)]                         
     # Feed edges to general function for finding closest point among lines
     closest_point, edge, distance = closest_point_along_lines(
         search_point, edge_tuples)
@@ -264,8 +265,24 @@ def search_sindex_items(sindex, search_bounds=None, bbox=False):
         return list(zip(indices, objects))
 
 
+def _flag_accessible(data, accessibility_functions):
+    # Default flag position is true (edge is accessible)
+    flag = True
+    # Iterate through accessibility functions
+    for key, function in accessibility_functions.items():
+        if key in data:
+            # If function response false
+            if function(data[key]) is False:
+                # Switch flag to false
+                flag = False
+                break
+        else:
+            flag = False
+    return flag
+
+
 def connect_points_to_closest_edges(G, points, search_distance=None, 
-    sindex=None, points_to_nodes=True, verbose=False):
+    sindex=None, points_to_nodes=True, accessibility_functions=None, verbose=False):
     """Connect points to a graph by inserting a node along their closest edge.
 
     G : :class:`networkx.Graph`, :class:`networkx.DiGraph`,\
@@ -312,18 +329,9 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
         else:
             v_name = name
         # Find the closest point suitable for connection along the network
-        def low_stress_highway(data):
-            low_stress = ['cycleway','residential','unclassified','tertiary',
-                          'secondary','primary']
-            # print(data.keys())
-            if (data is not None and 'highway' in data):
-                return any(h in low_stress for h in listify(data['highway']))
-            else:
-                return False
-        restrictions = [low_stress_highway]
         v_point, edge, _ = closest_point_along_network(
             u_point, G, search_distance=search_distance, 
-            sindex=sindex, restrictions=restrictions, verbose=verbose)
+            sindex=sindex, accessibility_functions=accessibility_functions, verbose=verbose)
         if v_point:
             if verbose:
                 node_check_start = time()
@@ -550,8 +558,9 @@ def route_node_pairs(node_pairs, G, weight=None, both_ways=False, verbose=False)
         return [route(G, O, D, weight) for O, D in node_pairs]
 
 
-def route_between_points(points, G, summaries=None, search_distance=None, 
-    sindex=None, points_to_nodes=True, weight='length', both_ways=False, verbose=False):
+def route_between_points(points, G, additional_summaries=None, summarize_links=False,
+    search_distance=None, sindex=None, points_to_nodes=True, weight=None, 
+    both_ways=False, accessibility_functions=None, verbose=False):
     """Route between pairs of points passed as columns in a DataFrame
     
 
@@ -598,44 +607,62 @@ def route_between_points(points, G, summaries=None, search_distance=None,
     unplaced_points, node_aliases = connect_points_to_closest_edges(
         G=G, points=named_unique_points, search_distance=search_distance, 
         sindex=sindex, points_to_nodes=points_to_nodes,
-        verbose=verbose)
+        accessibility_functions=accessibility_functions, verbose=verbose)
     if verbose:
         print('connect to edges time: {}'.format(time()-chunk_time))
         chunk_time = time()
         print('{} points placed on edges'.format(len(named_unique_points)-len(unplaced_points)))
+    
     # Replace points names with any aliases 
     a_names = [node_aliases[x] if x in node_aliases else x for x in a_names]
     b_names = [node_aliases[x] if x in node_aliases else x for x in b_names]
-    # Route between point pairs
-    routing_pairs = list(zip(a_names, b_names))
-    routes = route_node_pairs(routing_pairs, G, weight=weight, both_ways=both_ways)
+    # Pair up nodes
+    routing_pairs = list(zip(a_names, b_names)) 
+    # Route between pairs
+    routes = route_node_pairs(routing_pairs, G, weight=weight, both_ways=both_ways)  
     if verbose:
         print('routing time: {}'.format(time()-chunk_time))
         chunk_time = time()
         print('{} routes found'.format(len(routes)))
     # Define default summaries
-    if summaries is None:
-        summaries = {'geometry': route_geometry,
-                     'length': route_length}
-    elif 'route' not in summaries:
-        summaries['geometry'] = route_geometry
-    elif 'length' not in summaries:
-        summaries['length'] = route_length
+    default_summaries = OrderedDict(
+        [('route',  (lambda x: MultiLineString(x) if len(x) > 0 else None, 'geometry')),
+         ('rt_len', (lambda x: sum(x) if len(x) > 0 else np.inf, 'length'))])
+    weight_summary = OrderedDict(
+        [('wgt_sum',(lambda x: sum(x) if len(x) > 0 else np.inf, 'wgt_len'))])
+    # Add weight sum if weights are used for routing
+    if weight is not None:
+        default_summaries.update(weight_summary)
+    # Use default summary alone if no other summaries specified
+    if additional_summaries is None:
+        summaries = default_summaries
+    # Otherwise, append other summaries
+    else:
+        default_summaries.update(additional_summaries)
+        summaries = default_summaries
     # Make a DataFrame to hold summaries
-    route_summaries = pd.DataFrame(columns=summaries.keys())              
+    route_summaries = pd.DataFrame(columns=list(summaries.keys()) + ['log'])
     # Summarize attributes along routes
     for route in routes:
+        if not summarize_links:
+            if isinstance(route, list):
+                route = route[1:-1]
         _, summary = collect_route_attributes(route, G, summaries)
         route_summaries = route_summaries.append(summary, ignore_index=True)  
     if verbose:
-        print('summary time: {}'.format(time()-chunk_time))
-    # Concatinate with original points and organize columns
+        print('summary time: {}'.format(time()-chunk_time))   
+    if both_ways:
+        # Split forward and reverse columns apart
+        forward_summaries = route_summaries.head(len(points)).reset_index(drop=True)
+        backward_summaries = route_summaries.tail(len(points)).reset_index(drop=True)
+        # Add prefixes to the reverse column names        
+        backward_summaries.columns = ['rev_' + column for column in backward_summaries.columns]
+        # Concatinate them side-by-side
+        route_summaries = pd.concat([forward_summaries, backward_summaries], axis=1)
+    # Concatinate with original points
     return_dataframe = pd.concat([points, route_summaries], axis=1) 
-    front = points_order
-    back = ['length', 'geometry']
-    remaining = [x for x in list(return_dataframe) if x not in front + back]
-    return_dataframe = return_dataframe[front + remaining + back]
-    return_dataframe = return_dataframe.rename(columns={'geometry': 'route'})
+    # summary_columns = [x for x in list(return_dataframe) if x not in points_order]
+    # return_dataframe = return_dataframe[points_order + remaining]
     unrouted_pairs = [(i, x) for i, x in enumerate(routes) if isinstance(x, str)]
     return return_dataframe, unrouted_pairs
 
@@ -649,11 +676,13 @@ def collect_route_attributes(route, G, summaries):
         List nodes forming route
     G : :class:`networkx.Graph`
         Graph containing route
-    summaries : :obj:`dict`
-        Keys specify attributes to be collected. Values are functions with\
-        which each attributed will be summarised. Functions must take a\
-        single list-type parameter and be designed to operate on the types\
-        of attributes for which they are called.
+    summaries : :class:`OrderedDict`
+        Keys are names for summaries, uses as keys in ``collected_summaries``.\
+        Values are tuples with the first value being function for calculating\
+        the requested summary, and the second value being the name for the\
+        edge attribute from which the function makes these calulations.\
+        Functions must take a single list-type parameter and operate on the\
+        types of attributes for which they are called.
 
     Returns
     ----------
@@ -664,12 +693,11 @@ def collect_route_attributes(route, G, summaries):
     collected_summaries : :obj:`dict`
         Keys are attributes defined in the keys of ``summaries``. Values are\
         products of the functions defined in the values of ``summaries``.
-
     """
     # Get data from edges along route
     route_data = [G.get_edge_data(u, v) for u,v, in list(zip(route[:-1], route[1:]))]    
     # Make a structured array to store collected attributes
-    attribute_fields = dict(zip(summaries.keys(), ['object'] * len(summaries))) 
+    attribute_fields = dict(zip(summaries.keys(), ['object'] * len(summaries)))
     collected_attributes = empty_array(len(route_data), attribute_fields)
     # Iterate through edges along route
     for i, edge in enumerate(route_data):       
@@ -685,19 +713,34 @@ def collect_route_attributes(route, G, summaries):
                 _, j = min((length, j) for (j, length) in enumerate(lengths))
                 # Remove all dictionary elements except that one
                 [route_data[i].pop(x) for x in list(route_data[i]) if x != keys[j]]
+            
             # Collect each attribute
-            for attribute in summaries.keys():
+            for name, (_, attribute) in summaries.items():
                 # Access whatever key remains in the edge dictionary
                 for key in edge.keys():
-                    if attribute in edge[key]:
-                        collected_attributes[attribute][i] = edge[key][attribute]
+                    if isinstance(attribute, tuple):
+                        attributes = []
+                        for a in attribute:
+                            if a in edge[key]:
+                                attributes.append(edge[key][a])
+                            else:
+                                attributes.append(edge[key][None])
+                        collected_attributes[name][i] = tuple(attributes)
+                    else:
+                        if attribute in edge[key]:
+                            collected_attributes[name][i] = edge[key][attribute]
+                               
     # Summarize collected attributes
-    collected_summaries = {}
-    for attribute, summary_function in summaries.items(): 
-        attribute_list = collected_attributes[attribute].tolist()
+    collected_summaries = []
+    for name, (function, attribute)  in summaries.items(): 
+        attribute_list = collected_attributes[name].tolist()
         # Remove None values
         attribute_list = [x for x in attribute_list if x is not None]
-        collected_summaries[attribute] = summary_function(attribute_list)                  
+        collected_summaries.append((name, function(attribute_list)))
+    # Add a log entry to maintain original route info
+    collected_summaries.append(('log', route))
+    # Convert summaries into an ordered dict
+    collected_summaries = OrderedDict(collected_summaries)
     return collected_attributes, collected_summaries
 
 
