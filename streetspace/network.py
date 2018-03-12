@@ -414,6 +414,29 @@ def seperate_edge_index_and_geom(edge):
     return (index, geometry)
 
 
+def _make_index(G, path, open_copy):
+    def generator(edges):
+        for i, edge in enumerate(edges):
+            edge_tuple, geometry = seperate_edge_index_and_geom(edge)
+            yield (i+1, geometry.bounds, edge_tuple)
+    # Remove any old versions that exist
+    # (since `index` method appends rather than overwriting)
+    try:
+        os.remove(path + '.idx')
+    except OSError:
+        pass
+    try:
+        os.remove(path + '.dat')
+    except OSError:
+        pass
+    # Construct index into the path
+    edges = G.edges(keys=True, data='geometry')
+    idx = index.Index(path, generator(edges))#, properties = p)
+    # Close the file to complete writing process
+    idx.close()
+    # Reopen the serialized index, either original or temp copy
+    return load_index(path, open_copy=open_copy) 
+
 
 def make_graph_sindex(G, path=None, load_existing=False, open_copy=False):
     """Create a spatial index from a graph with geometry attributes.
@@ -441,43 +464,47 @@ def make_graph_sindex(G, path=None, load_existing=False, open_copy=False):
     :class:`rtree.index.Index`
         Spatial index
     """
-    def make_index(G, path, open_copy):
+    
+    def make_index(G, path=None, open_copy=False):
         def generator(edges):
             for i, edge in enumerate(edges):
                 edge_tuple, geometry = seperate_edge_index_and_geom(edge)
                 yield (i+1, geometry.bounds, edge_tuple)
         # Remove any old versions that exist
-        # (since `index` method appends rather than overwriting)
-        try:
-            os.remove(path + '.idx')
-        except OSError:
-            pass
-        try:
-            os.remove(path + '.dat')
-        except OSError:
-            pass
-        # Construct index into the path
         edges = G.edges(keys=True, data='geometry')
-        idx = index.Index(path, generator(edges))#, properties = p)
-        # Close the file to complete writing process
-        idx.close()
-        # Reopen the serialized index, either original or temp copy
-        return load_index(path, open_copy=open_copy) 
+        if path:
+            # (since `index` method appends rather than overwriting)
+            try:
+                os.remove(path + '.idx')
+            except OSError:
+                pass
+            try:
+                os.remove(path + '.dat')
+            except OSError:
+                pass
+            # Construct index into the path
+            idx = index.Index(path, generator(edges))#, properties = p)
+            # Close the file to complete writing process
+            idx.close()
+            # Reopen the serialized index, either original or temp copy
+            return load_index(path, open_copy=open_copy)
+        else:
+            return index.Index(generator(edges))
+
     if path:
-        if load_existing:
+        if open_copy:
             if (os.path.isfile(path + '.idx') & os.path.isfile(path + '.dat')):
                 return load_index(path, open_copy=open_copy)
             else:
                 return make_index(G, path, open_copy)
         else:
-            return make_index(G, path, open_copy)
+            return make_index(G, path)
     else:
-        return make_index(G, path, open_copy)     
-
+        return make_index(G)
+        # return _make_index(G, path, open_copy)  
 
 def load_index(path, open_copy=False, close_first=None):
     """Load a serialized rtree index.
-
     
     ``open_copy`` is useful because rtree indices load by default in\
     'append mode', where any changes to the index object will modify the\
@@ -502,7 +529,7 @@ def load_index(path, open_copy=False, close_first=None):
     """
     # Make sure file is closed
     if close_first:
-        close_first.close()
+        path.close()
     if open_copy:
         # Ensure that temp directory exists
         pathlib.Path('temp').mkdir(parents=True, exist_ok=True)

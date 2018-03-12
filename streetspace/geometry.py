@@ -787,6 +787,7 @@ def clip_line_by_polygon(line, polygon):
     else:
         return None
 
+
 def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     """Clip a polyline to the portion within a polygon boundary.
     
@@ -794,10 +795,8 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     ----------
     line_gdf : :class:`geopandas.GeoDataFrame`
         Lines to clip. Geometry type must be :class:`shapely.geometry.LineString`
-
     polygon_gdf : :class:`geopandas.GeoDataFrame`
         Polygons to clip by. Geometry type must be :class:`shapely.geometry.Polygon`
-
     Returns
     -------
     :class:`geopandas.GeoDataFrame`
@@ -837,6 +836,115 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     clip_gdf = df_first_column(clip_gdf, 'polygon_index')
     clip_gdf = df_last_column(clip_gdf, 'geometry')
     return clip_gdf
+
+
+def lines_polygons_intersection(lines, polygons, polygons_sindex=None):
+    """Finds intersection of all lines with all polygons.
+    
+    Parameters
+    ----------
+    lines : LineString or MultiLineString GeoDataFrame
+    polygons : Polygon GeoDataFram
+    polygons_sindex : Spatial index for polygons
+
+    Returns
+    -------
+    LineString or MultiLineString GeoDataFrame
+    """
+    # Create a spatial index for polygons if not supplied
+    if polygons_sindex is None:
+        polygons_sindex = polygons.sindex
+    # Initiate a new geodataframe to store results
+    results = GeoDataFrame(columns = ['polygon_id'] + list(lines.columns))
+    # Iterate through lines
+    for line in lines.itertuples():
+        # Convert line record to a mutable dictionary
+        possible_matches = polygons.iloc[list(
+            polygons_sindex.intersection(line.geometry.bounds))]
+        for polygon in possible_matches.itertuples():
+            # print(polygon)
+            intersection = line.geometry.intersection(polygon.geometry)
+            if isinstance(intersection, (LineString, MultiLineString)):
+                # If input was MultiLineString
+                if type(lines.geometry[0]) == MultiLineString:
+                    # And intersection is only LineString
+                    if isinstance(intersection, LineString):
+                        # Convert to MultiLineString
+                        instersection = MultiLineString([intersection])
+                # Make a copy of the row
+                result_line = line._asdict()
+                # Replace its geometry with the intersection
+                result_line['geometry'] = intersection
+                # Add a field for the polygon id
+                result_line['polygon_id'] = polygon.t
+                # Rename line id field
+                result_line['line_id'] = line.Index
+                result_line.pop('Index')
+                # Append it to the results
+                results = results.append(result_line, ignore_index=True)
+    # Ensure that indices are stored as integers
+    results['line_id'] = pd.Series(results['line_id'], dtype='int32')
+    results['polygon_id'] = pd.Series(results['polygon_id'], dtype='int32')
+    # Rearrange columns
+    results = df_first_column(results, 'polygon_id')
+    results = df_first_column(results, 'line_id')
+    results = df_last_column(results, 'geometry')
+    return results
+
+
+def lines_polygons_difference(lines, polygons, polygons_sindex=None):
+    """Finds intersection of all lines with all polygons.
+    
+    Parameters
+    ----------
+    lines : LineString or MultiLineString GeoDataFrame
+    polygons : Polygon GeoDataFram
+    polygons_sindex : Spatial index for polygons
+
+    Returns
+    -------
+    LineString or MultiLineString GeoDataFrame
+    """
+    # Create a spatial index for polygons if not supplied
+    if polygons_sindex is None:
+        polygons_sindex = polygons.sindex
+    # Initiate a new geodataframe to store results
+    results = GeoDataFrame(columns = ['polygon_id'] + list(lines.columns))
+    # Iterate through lines
+    for line in lines.itertuples():
+        # Convert line record to a mutable dictionary
+        possible_matches = polygons.iloc[list(
+            polygons_sindex.intersection(line.geometry.bounds))]
+        for polygon in possible_matches.itertuples():
+            # print(polygon)
+            intersection = line.geometry.difference(polygon.geometry)
+            if isinstance(intersection, (LineString, MultiLineString)):
+                # If input was MultiLineString
+                if type(lines.geometry[0]) == MultiLineString:
+                    # And intersection is only LineString
+                    if isinstance(intersection, LineString):
+                        # Convert to MultiLineString
+                        instersection = MultiLineString([intersection])
+                # Make a copy of the row
+                result_line = line._asdict()
+                # Replace its geometry with the intersection
+                result_line['geometry'] = intersection
+                # Add a field for the polygon id
+                result_line['polygon_id'] = polygon.t
+                # Rename line id field
+                result_line['line_id'] = line.Index
+                result_line.pop('Index')
+                # Append it to the results
+                results = results.append(result_line, ignore_index=True)
+    # Ensure that indices are stored as integers
+    results['line_id'] = pd.Series(results['line_id'], dtype='int32')
+    results['polygon_id'] = pd.Series(results['polygon_id'], dtype='int32')
+    # Rearrange columns
+    results = df_first_column(results, 'polygon_id')
+    results = df_first_column(results, 'line_id')
+    results = df_last_column(results, 'geometry')
+    return results
+    
 
 def shape_to_gdf(shape, crs=None):
     """Convert one or more shapes to a geodataframe.
