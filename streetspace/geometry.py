@@ -1046,6 +1046,35 @@ def intersect_shapes(shapes_a, shapes_b, shapes_b_sindex=None):
     return intersections
 
 
+def normalize_azimuth(azimuth, zero_center=False):
+    """Normalize an azimuth in degrees so it falls between 0 and 360.
+    
+    If ``zero_center=True``, azimuth will be normalized
+    between -180 and 180.
+    """
+    if (azimuth > 360 or azimuth < 0):
+        azimuth %= 360
+    if zero_center:
+        if azimuth > 180:
+            azimuth -= 360
+    return azimuth      
+
+def azimuth_difference(azimuth_a, azimuth_b, directional=True):
+    """Find the difference between two azimuths specifed in degrees.
+    
+    If ``directional=False``, will also examine difference if one
+    azimuth is rotated 180 degrees and will return the smaller
+    of the two differences.   
+    """
+    azimuth_a = normalize_azimuth(azimuth_a)
+    azimuth_b = normalize_azimuth(azimuth_b)
+    difference = abs(azimuth_a - azimuth_b)
+    if not directional:
+        azimuth_a_rotated = azimuth_a + 180
+        rotated_difference = abs(azimuth_a_rotated - azimuth_b)
+        return min([difference, rotated_difference])
+    else:
+        return difference
 
 
 
