@@ -1076,11 +1076,21 @@ def azimuth_difference(azimuth_a, azimuth_b, directional=True):
     else:
         return difference
 
-
-
-
-
-
-
-
-
+def directed_hausdorff_distance(shape_a, shape_b):
+    """Calculates the directed Hausdorff Distance between two shapely shapes.
+    
+    Returned Hausdorff Distance is directed (the maximum shortest distance
+    from ``shape_a`` to ``shape_b``). To calculate the directed Hausdorff Distance
+    in the other direction, exchange ``shape_a`` and ``shape_b``.
+    
+    """
+    # Get points for the first line's vertices
+    a_vertex_coordinates = np.array(shape_a)
+    a_vertex_points = [Point(a) for a in a_vertex_coordinates]
+    # Get closest points to these vertices on the second line
+    b_closest_points = [shape_b.interpolate(shape_b.project(a)) 
+                        for a in a_vertex_points]
+    # point_sets = zip(A_vertex_points, closest_B_points)
+    closest_point_sets = zip(a_vertex_points, b_closest_points)
+    distances_between_points = [a.distance(b) for a, b in closest_point_sets]
+    return max(distances_between_points)
