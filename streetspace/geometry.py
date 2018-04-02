@@ -19,6 +19,7 @@ from geopandas import GeoDataFrame
 from rtree import index
 from itertools import cycle
 from pprint import pprint
+from time import time
 
 from .utils import *
 
@@ -1066,15 +1067,20 @@ def azimuth_difference(azimuth_a, azimuth_b, directional=True):
     azimuth is rotated 180 degrees and will return the smaller
     of the two differences.   
     """
-    azimuth_a = normalize_azimuth(azimuth_a)
-    azimuth_b = normalize_azimuth(azimuth_b)
-    difference = abs(azimuth_a - azimuth_b)
+    azimuth_a = normalize_azimuth(azimuth_a, zero_center=True)
+    azimuth_b = normalize_azimuth(azimuth_b, zero_center=True)
+    def _diff(a, b):
+        difference = a-b
+        if difference > 180:
+            difference -= 360
+        if difference < -180:
+            difference += 360
+        return abs(difference)
+    difference = _diff(azimuth_a, azimuth_b)   
     if not directional:
-        azimuth_a_rotated = azimuth_a + 180
-        rotated_difference = abs(azimuth_a_rotated - azimuth_b)
-        return min([difference, rotated_difference])
-    else:
-        return difference
+        rotated_difference = _diff(azimuth_a + 180, azimuth_b)
+        difference = min([difference, rotated_difference])
+    return difference
 
 def directed_hausdorff_distance(shape_a, shape_b):
     """Calculates the directed Hausdorff Distance between two shapely shapes.
@@ -1094,3 +1100,95 @@ def directed_hausdorff_distance(shape_a, shape_b):
     closest_point_sets = zip(a_vertex_points, b_closest_points)
     distances_between_points = [a.distance(b) for a, b in closest_point_sets]
     return max(distances_between_points)
+
+
+def conflate_lines_by_midpoint(target_features, match_features,
+    match_features_sindex=None, distance_tolerance=100, 
+    azimuth_tolerance=None, join_fields=False, join_stats=False, verbose=False):
+    """Conflate attributes between line features based on midpoint proximity.
+    
+    """
+    if verbose:
+        start = time()
+        length = len(target_features)
+        counter = 0
+    # Make a spatial index for join features, if one isn't supplied
+    if not match_features_sindex:
+        match_features_sindex = match_features.sindex 
+    join_indices = []
+    join_dists = []
+    if azimuth_tolerance:
+        join_azimuths = []
+    # Iterate through target features
+    for target in target_features.itertuples():
+        # Get target feature midpoint
+        target_midpoint = midpoint(target.geometry)
+        # Identify join features within seach distance of midpoint
+        search_area = target_midpoint.buffer(distance_tolerance).bounds
+        matches = match_features.iloc[list(
+            match_features_sindex.intersection(search_area))].reset_index().copy()
+        # Identify the closest point along each nearby join feature
+        match_geoms = matches['geometry'].tolist()
+        match_lin_refs = [geom.project(target_midpoint) for geom in match_geoms]
+        match_points = [geom.interpolate(lin_ref) for geom, lin_ref in 
+                                     zip(match_geoms, match_lin_refs)]
+        match_dists = [target_midpoint.distance(
+            match_point) for match_point in match_points]      
+        matches['midpoint_distance'] = pd.Series(match_dists)
+        # Remove matches outside the distance tolerance
+        matches = (matches[matches['midpoint_distance'] <= 
+            distance_tolerance].reset_index(drop=True).copy())
+        # Assess azimuth similarity
+        if azimuth_tolerance:
+            # Get the azimuth of each join feature at its closest point
+            match_azimuths = [azimuth_at_distance(geom, lin_ref) 
+                for geom, lin_ref in zip(match_geoms, match_lin_refs)]
+            # Compare it to the azimuth of the target feature at its midpoint
+            target_azimuth = azimuth_at_distance(
+                target.geometry, target.geometry.project(target_midpoint))
+            relative_azimuths = [azimuth_difference(
+                target_azimuth, match_azimuth, directional=False) 
+                for match_azimuth in match_azimuths]
+            # Add relative azimuths to the matches dataframe
+            matches['relative_azimuth'] = pd.Series(relative_azimuths)
+            # Remove matches outside the azimuth tolerance
+            matches = (matches[matches['relative_azimuth'] <= 
+                azimuth_tolerance].reset_index(drop=True).copy())
+        # Record index for closest remaining join feature
+        join_id = np.nan
+        join_dist = np.nan
+        join_azimuth = np.nan
+        if len(matches) > 0:
+            match_index = matches['midpoint_distance'].idxmin()
+            if pd.notnull(match_index):
+                join_id = matches.iloc[match_index]['index']
+                join_dist = matches.iloc[match_index]['midpoint_distance']
+                if azimuth_tolerance:
+                    join_azimuth = matches.iloc[match_index]['relative_azimuth']
+        join_indices.append(join_id)
+        join_dists.append(join_dist)
+        if azimuth_tolerance:
+            join_azimuths.append(join_azimuth) 
+        # Report status
+        if verbose:
+            if counter % round(length / 10) == 0 and counter > 0:
+                percent_complete = (counter // round(length / 10)) * 10
+                minutes = (time()-start) / 60
+                print('{}% ({} segments) complete after {:04.2f} minutes'.format(percent_complete, counter, minutes))
+            counter += 1
+    # Merged joined data with target features
+    target_features['join_id'] = pd.Series(join_indices, index=target_features.index)
+    if join_stats:
+        target_features['join_dist'] = pd.Series(join_dists, index=target_features.index)
+        if azimuth_tolerance:
+            target_features['join_azimuth'] = pd.Series(join_azimuths, index=target_features.index)       
+    # Report done
+    if verbose:
+        print('100% ({} segments) complete after {:04.2f} minutes'.format(counter, (time()-start) / 60))
+    if join_fields:
+        match_features = match_features.drop(columns=['geometry'])
+        return target_features.merge(
+            match_features, how='left', left_on='join_id', right_index=True, 
+            suffixes=('_a', '_b'))
+    else:
+        return target_features
