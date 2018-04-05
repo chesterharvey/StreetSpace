@@ -5,6 +5,7 @@
 ################################################################################
 
 import numpy as np
+import pandas as pd
 import subprocess
 
 def listify(x):
@@ -295,5 +296,56 @@ def concatenate(list_to_summarize, separator=', '):
         if not isinstance(x, str):
             list_to_summarize[i] = str(x)
     return separator.join(list_to_summarize)
+
+
+def applymap_numeric_columns(df, func):
+    """Apply applymap() only to numeric columns in a dataframe.
+    
+    All other columns are returned unchanged.
+    """
+    columns = df._get_numeric_data().columns
+    df[columns] = df[columns].applymap(func)
+    return df
+
+
+def applymap_dtype_columns(df, func, dtypes):
+    """Apply applymap() only to columns with certain dtypes.
+    
+    All other columns are returned unchanged.
+    """
+    columns = pd.select_dtypes(include=dtypes).columns
+    df[columns] = df[columns].applymap(func)
+    return df
+
+
+def applymap_specific_columns(df, columns, func):
+    """Apply applymap() only to specific columns.
+    
+    All other columns are returned unchanged.
+    """
+    df[columns] = df[columns].applymap(func)
+    return df
+
+
+def insert_dummies(df, field, prefix=False, drop_field=True):
+    """Create dummy fields and insert them in place of the original field.
+
+    """
+    dummies = pd.get_dummies(df[field])
+    if prefix:
+        dummies = dummies.add_prefix(prefix)
+    orig_idx = df.columns.get_loc(field)
+    for i, column in enumerate(dummies.columns):
+        df.insert(orig_idx + i, column, dummies[column])
+    if drop_field:
+        df = df.drop([field], axis=1)
+    return df
+
+
+def make_google_maps_url(lat, lon):
+    url = 'http://maps.google.com/maps?q=LAT,LON'
+    url = url.replace('LAT', str(round(lat, 5)))
+    url = url.replace('LON', str(round(lon, 5)))
+    return url
 
 
