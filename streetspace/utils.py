@@ -299,7 +299,7 @@ def concatenate(list_to_summarize, separator=', '):
 
 
 def applymap_numeric_columns(df, func):
-    """Apply applymap() only to numeric columns in a dataframe.
+    """Map a function elementwise to numeric columns.
     
     All other columns are returned unchanged.
     """
@@ -309,7 +309,7 @@ def applymap_numeric_columns(df, func):
 
 
 def applymap_dtype_columns(df, func, dtypes):
-    """Apply applymap() only to columns with certain dtypes.
+    """Map a function elementwise to columns with certain dtypes.
     
     All other columns are returned unchanged.
     """
@@ -319,11 +319,20 @@ def applymap_dtype_columns(df, func, dtypes):
 
 
 def applymap_specific_columns(df, columns, func):
-    """Apply applymap() only to specific columns.
+    """Map a function elementwise to specific columns.
     
     All other columns are returned unchanged.
     """
     df[columns] = df[columns].applymap(func)
+    return df
+
+
+def map_new_column(df, column, func):
+    """Apply a function to a column.
+    
+    All other columns are returned unchanged.
+    """
+    df[column] = df.apply(func, axis=1)
     return df
 
 
