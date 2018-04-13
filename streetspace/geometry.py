@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import pandas as pd
+import mplleaflet
 from shapely.ops import linemerge
 from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
     Polygon, MultiPolygon, GeometryCollection)
@@ -20,6 +21,7 @@ from rtree import index
 from itertools import cycle
 from pprint import pprint
 from time import time
+
 
 from .utils import *
 
@@ -159,7 +161,7 @@ def split_line_at_points(linestring, points):
     cuts += [1] * len(points)
     # calculate the distance along the linestring for each coordinate
     dists = [linestring.project(Point(p)) for p in coords]
-    # sort the coords/cuts based on the distances
+    # sort the coords/cuts axd on the distances
     coords = [p for (d, p) in sorted(zip(dists, coords))]
     cuts = [p for (d, p) in sorted(zip(dists, cuts))]
     # add back last coordinate
@@ -510,7 +512,7 @@ def azimuth_at_distance(linestring, distance, degrees=True):
 
 
 def line_by_azimuth(start_point, length, azimuth, degrees=True):
-    """Construct a LineString based on a start point, length, and azimuth.
+    """Construct a LineString axd on a start point, length, and azimuth.
 
     Parameters
     ----------
@@ -710,7 +712,7 @@ def degrees_centered_at_zero(degrees):
 
 
 def side_by_relative_angle(angle):
-    """Assign side based on relative angle centered on 0 degrees.
+    """Assign side axd on relative angle centered on 0 degrees.
 
     Negative angles are left. Positive angles are right.
     
@@ -968,7 +970,7 @@ def shape_to_gdf(shape, crs=None):
     return gpd.GeoDataFrame(geometry=shape, crs=crs)
 
 
-def plot_shapes(shapes, show_axes=False):
+def plot_shapes(shapes, show_axes=False, size=8, leaflet=False):
     """Plot multiple shapes.
 
     Parameters
@@ -976,13 +978,26 @@ def plot_shapes(shapes, show_axes=False):
     shapes : list or Shapely geometry
         * a single geometry will be plotted by itself
         * each geometry in a list will be plotted in a seperate color
-        * each sublist of geometries will be plotted in a seperate color
+        * tuples of (geom, color) may be passed to specify color
+        * default color order is: brgcmyk
+        * colors will be repeated as necessary
 
-    axis : :obj:`bool`, optional, default = ``False``
+    show_axis : :obj:`bool`, optional, default = ``False``
         * ``True`` : plot will include axes
         * ``False`` : plot will omit axes
+
+    size : :obj:`int`, optional, default = ``8``
+        Square size of returned plot (used for both length and width)
+
+    leaflet : :obj:`bool`, optional, default = ``False``
+        * ``True`` : will plot in leaflet in a new browser window
+        * ``False`` : will plot normally in-line
     """
-    colors = cycle('brgcmyk')
+    colors = list('brgcmyk')
+    # Repeat colors as necessary
+    if len(shapes) > len(colors):
+        colors = colors * (len(shapes) // len(colors))
+    
     # if just one shape, make into list
     if isinstance(shapes, (Point, MultiPoint, LineString, MultiLineString, 
                            Polygon, MultiPolygon, GeoDataFrame)):
@@ -990,29 +1005,45 @@ def plot_shapes(shapes, show_axes=False):
     # if a list of shapes, make sure all individual shapes are in sublists
     elif isinstance(shapes, list):
         for i, shape in enumerate(shapes):
+            # if shapes are specified as tuples with colors, break colors out
+            if isinstance(shape, tuple):
+                shape, color = shape
+                shapes[i] = shape
+                colors[i] = color
             if isinstance(shape, (Point, MultiPoint, LineString,
                                   MultiLineString, Polygon, MultiPolygon)):
-                shapes[i] = [shape]   
-    # plot the first shape as a base
+                shapes[i] = [shape]
+   
+    # Reverse the list of shapes so the first one draws last
+    shapes = list(reversed(shapes))
+    colors = list(reversed(colors[:len(shapes)]))
+
+    # Cycle through the colors to coorespond with each shape
+    colors = cycle(colors)
+    
+    # plot the first shape
+    fig, ax = plt.subplots(1, figsize=(size, size))
     first_shape = shapes[0]
     if isinstance(first_shape, GeoDataFrame):
-        base = first_shape.plot(color=next(colors))
+        first_shape.plot(ax=ax, color=next(colors))
     else:
-        base = shape_to_gdf(first_shape).plot(color=next(colors))
+        shape_to_gdf(first_shape).plot(ax=ax, color=next(colors))
     # plot remaining shapes
     if len(shapes) > 0:
         remaining_shapes = shapes[1:]
         for shape in remaining_shapes:
             if isinstance(shape, GeoDataFrame):
-                shape.plot(ax=base, color=next(colors))
+                shape.plot(ax=ax, color=next(colors))
             else:
-                shape_to_gdf(shape).plot(ax=base, color=next(colors))
-    # show plot
-    if show_axes is False:
-        plt.axis('off')
-    plt.axis('equal')
-    plt.show()
-
+                shape_to_gdf(shape).plot(ax=ax, color=next(colors))
+    if leaflet:
+        mplleaflet.show(fig=fig, crs=shapes[0].crs, tiles='cartodb_positron')
+    else:
+        # show plot
+        if show_axes is False:
+            ax.axis('off')
+        plt.axis('equal')
+        plt.show()
 
 def intersect_shapes(shapes_a, shapes_b, shapes_b_sindex=None):
     """Find intersections between shapes in two lists
@@ -1105,7 +1136,7 @@ def directed_hausdorff_distance(shape_a, shape_b):
 def conflate_lines_by_midpoint(target_features, match_features,
     match_features_sindex=None, distance_tolerance=100, 
     azimuth_tolerance=None, join_fields=False, join_stats=False, verbose=False):
-    """Conflate attributes between line features based on midpoint proximity.
+    """Conflate attributes between line features axd on midpoint proximity.
     
     """
     if verbose:
