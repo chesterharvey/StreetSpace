@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import pandas as pd
+import osmnx as ox
 import mplleaflet
 from shapely.ops import linemerge
 from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
@@ -508,7 +509,7 @@ def azimuth_at_distance(linestring, distance, degrees=True):
     for i, length in reversed(list(enumerate(cumulative_lengths))):
         if length >= distance:
             segment_ID = i
-    return azimuth(segments[segment_ID], degrees=degrees)
+    return azimuth(segments[segment_ID], degrees=degrees)          
 
 
 def line_by_azimuth(start_point, length, azimuth, degrees=True):
@@ -993,26 +994,34 @@ def plot_shapes(shapes, show_axes=False, size=8, leaflet=False):
         * ``True`` : will plot in leaflet in a new browser window
         * ``False`` : will plot normally in-line
     """
-    colors = list('brgcmyk')
-    # Repeat colors as necessary
-    if len(shapes) > len(colors):
-        colors = colors * (len(shapes) // len(colors))
     
     # if just one shape, make into list
     if isinstance(shapes, (Point, MultiPoint, LineString, MultiLineString, 
                            Polygon, MultiPolygon, GeoDataFrame)):
         shapes = [shapes]
+
     # if a list of shapes, make sure all individual shapes are in sublists
     elif isinstance(shapes, list):
+        shape_colors = [0] * len(shapes)
         for i, shape in enumerate(shapes):
             # if shapes are specified as tuples with colors, break colors out
             if isinstance(shape, tuple):
                 shape, color = shape
                 shapes[i] = shape
-                colors[i] = color
+                shape_colors[i] = color
             if isinstance(shape, (Point, MultiPoint, LineString,
                                   MultiLineString, Polygon, MultiPolygon)):
                 shapes[i] = [shape]
+    
+    # Repeat colors as necessary
+    colors = list('brgcmyk')
+    if len(shapes) > len(colors):
+        colors = colors * (len(shapes) // len(colors))
+    
+    # Insert specified colors
+    for i, color in enumerate(shape_colors):
+        if color != 0:
+            colors[i] = color
    
     # Reverse the list of shapes so the first one draws last
     shapes = list(reversed(shapes))
@@ -1133,73 +1142,176 @@ def directed_hausdorff_distance(shape_a, shape_b):
     return max(distances_between_points)
 
 
-def conflate_lines_by_midpoint(target_features, match_features,
-    match_features_sindex=None, distance_tolerance=100, 
-    azimuth_tolerance=None, join_fields=False, join_stats=False, verbose=False):
-    """Conflate attributes between line features axd on midpoint proximity.
+def match_lines_by_midpoint(target_features, match_features, distance_tolerance, 
+    match_features_sindex=None, azimuth_tolerance=None, length_tolerance=None,
+    incidence_tolerance=None, match_by_score=False, match_fields=False, match_stats=False, 
+    constrain_target_features=False, target_features_sindex=None, verbose=False):
+    """Conflate attributes between line features based on midpoint proximity.
     
     """
+    # Copy input features to the function doesn't modify the originals
+    target_features = target_features.copy()
+    match_features = match_features.copy()
+
     if verbose:
         start = time()
         length = len(target_features)
         counter = 0
-    # Make a spatial index for join features, if one isn't supplied
+    
+    # Constrain target features to those near available match features
+    if constrain_target_features:
+        if not target_features_sindex:
+            target_features_sindex = target_features.sindex
+        nearby_target_idx = []
+        
+        for match_feature in match_features.geometry:
+            nearby_target_idx.extend(
+                list(target_features_sindex.intersection(
+                    match_feature.buffer(distance_tolerance).bounds)))
+        nearby_target_idx = list(set(nearby_target_idx))
+        operating_target_features = target_features[['geometry']].iloc[nearby_target_idx]
+    else:
+        operating_target_features = target_features[['geometry']]
+
+    # Make a spatial index for match features, if one isn't supplied
     if not match_features_sindex:
         match_features_sindex = match_features.sindex 
-    join_indices = []
-    join_dists = []
+    
+    # Initiate lists to store match results
+    match_indices = []
+    match_dists = []
     if azimuth_tolerance:
-        join_azimuths = []
-    # Iterate through target features
-    for target in target_features.itertuples():
-        # Get target feature midpoint
-        target_midpoint = midpoint(target.geometry)
-        # Identify join features within seach distance of midpoint
-        search_area = target_midpoint.buffer(distance_tolerance).bounds
-        matches = match_features.iloc[list(
-            match_features_sindex.intersection(search_area))].reset_index().copy()
-        # Identify the closest point along each nearby join feature
-        match_geoms = matches['geometry'].tolist()
-        match_lin_refs = [geom.project(target_midpoint) for geom in match_geoms]
-        match_points = [geom.interpolate(lin_ref) for geom, lin_ref in 
-                                     zip(match_geoms, match_lin_refs)]
-        match_dists = [target_midpoint.distance(
-            match_point) for match_point in match_points]      
-        matches['midpoint_distance'] = pd.Series(match_dists)
-        # Remove matches outside the distance tolerance
-        matches = (matches[matches['midpoint_distance'] <= 
-            distance_tolerance].reset_index(drop=True).copy())
-        # Assess azimuth similarity
-        if azimuth_tolerance:
-            # Get the azimuth of each join feature at its closest point
-            match_azimuths = [azimuth_at_distance(geom, lin_ref) 
-                for geom, lin_ref in zip(match_geoms, match_lin_refs)]
+        match_azimuths = []
+    if length_tolerance:
+        match_lengths = []
+    if match_by_score:
+        match_scores = []
+       
+    # Iterate through target features:
+    for target in operating_target_features.geometry:
+
+        # Roughly filter candidates with a spatial index
+        target_midpoint = midpoint(target)
+        match_area = target_midpoint.buffer(distance_tolerance)
+        candidate_IDs = list(match_features_sindex.intersection(match_area.bounds))
+        candidates = match_features.geometry.iloc[candidate_IDs].reset_index()
+        
+        # Calculate distances to closest points along candidates
+        closest_point_lin_refs = [line.project(target_midpoint) for 
+            line in candidates['geometry']]
+        closest_points = [line.interpolate(ref) for 
+            line, ref in zip(candidates['geometry'], closest_point_lin_refs)]
+        closest_dists = [target_midpoint.distance(point) for 
+            point in closest_points]
+        candidates['midpoint_dist'] = pd.Series(closest_dists)
+        candidates['closest_point_lin_refs'] = pd.Series(closest_point_lin_refs)
+        
+        # Filter candidates by precise distance
+        candidates = candidates[candidates['midpoint_dist'] <= distance_tolerance].reset_index()
+        
+        if length_tolerance is not None or match_stats:
+            # Get lengths of each match feature
+            _match_lengths = [line.length for line in candidates['geometry']]
+            # Compare to length of target feature
+            relative_lengths = [x - target.length for x in _match_lengths]
+            # Add relative azimuths to the candidates dataframe
+            candidates['relative_length'] = pd.Series(relative_lengths)
+            # Filter by length if desired
+            if length_tolerance is not None:
+                # Filter out match features beyond length tolerance
+                candidates = candidates[candidates['relative_length'].abs() < length_tolerance].reset_index(drop=True)
+        
+        if azimuth_tolerance is not None or match_stats:
+            # Get the azimuth of each match feature at its closest point
+            _match_azimuths = [azimuth_at_distance(line, ref) 
+                for line, ref in zip(candidates['geometry'], candidates['closest_point_lin_refs'])]
             # Compare it to the azimuth of the target feature at its midpoint
             target_azimuth = azimuth_at_distance(
-                target.geometry, target.geometry.project(target_midpoint))
+                target, target.project(target_midpoint))
             relative_azimuths = [azimuth_difference(
                 target_azimuth, match_azimuth, directional=False) 
-                for match_azimuth in match_azimuths]
-            # Add relative azimuths to the matches dataframe
-            matches['relative_azimuth'] = pd.Series(relative_azimuths)
-            # Remove matches outside the azimuth tolerance
-            matches = (matches[matches['relative_azimuth'] <= 
-                azimuth_tolerance].reset_index(drop=True).copy())
-        # Record index for closest remaining join feature
-        join_id = np.nan
-        join_dist = np.nan
-        join_azimuth = np.nan
-        if len(matches) > 0:
-            match_index = matches['midpoint_distance'].idxmin()
-            if pd.notnull(match_index):
-                join_id = matches.iloc[match_index]['index']
-                join_dist = matches.iloc[match_index]['midpoint_distance']
+                for match_azimuth in _match_azimuths]
+            # Add relative azimuths to the candidates dataframe
+            candidates['relative_azimuth'] = pd.Series(relative_azimuths)
+            # Filter by azimuth if desired
+            if azimuth_tolerance is not None:
+                # Filter out match features beyond azimuth tolerance
+                candidates = candidates[candidates['relative_azimuth'] < azimuth_tolerance].reset_index(drop=True)
+
+        if incidence_tolerance is not None or match_stats:
+            # Get angle of incidence between target feature centerpoint and closest points on match features
+            incidence_lines = [LineString([target_midpoint, x]) for x in closest_points]
+            incidence_azimuths = [azimuth(x) for x in incidence_lines]
+            relative_incidences = [90 - azimuth_difference(
+                x, target_azimuth, directional=False) for x in incidence_azimuths]
+
+        ############## DO SOMETHING WITH RELATIVE INCIDENCES #############
+        # If they're greater than the threshold, do not match 
+
+        # Identify match feature
+        match_id = np.nan
+        match_dist = np.nan
+        match_length = np.nan
+        match_azimuth = np.nan
+        match_incidence = np.nan
+        match_score = np.nan
+        
+        if len(candidates) > 0:
+            if match_by_score:
+                # Calculate scores based on available criteria
+                scores = pd.Series([0] * len(candidates))
+                available_criteria = list({'midpoint_dist', 'relative_length', 'relative_azimuth'} & 
+                                set(candidates.columns))
+                # Remove criteria without specified tolerances
+                if 'relative_length' in available_criteria and not length_tolerance:
+                    available_criteria.remove('relative_length')
+                if 'relative_azimuth' in available_criteria and not azimuth_tolerance:
+                    available_criteria.remove('relative_azimuth')
+                # Calculate scores for each criterium
+                for criterion in available_criteria:
+                    if criterion == 'midpoint_dist':
+                        scores = scores + ((distance_tolerance - candidates['midpoint_dist']) / 
+                            distance_tolerance / len(available_criteria))
+                    elif criterion == 'relative_length':
+                        scores = scores + ((length_tolerance - candidates['relative_length'].abs()) / 
+                            length_tolerance / len(available_criteria))
+                    elif criterion == 'relative_azimuth':
+                        scores = scores + ((azimuth_tolerance - candidates['relative_azimuth']) / 
+                            azimuth_tolerance / len(available_criteria))
+                               
+                # Select candidate with maximum score
+                match_index = scores.idxmax()
+            
+            # If not match by score, select remaining candidate closest to midpoint
+            else:
+                match_index = candidates['midpoint_dist'].idxmin()
+            
+            # Get info for match
+            if pd.notnull(match_index):               
+                # match_id = candidates.loc[match_index]['index']
+                match_id = candidates.at[match_index, 'index']
+                # match_dist = candidates.loc[match_index]['midpoint_dist']
+                match_dist = candidates.at[match_index, 'midpoint_dist']
+                if length_tolerance:
+                    # match_length = candidates.loc[match_index]['relative_length']
+                    match_length = candidates.at[match_index, 'relative_length']
                 if azimuth_tolerance:
-                    join_azimuth = matches.iloc[match_index]['relative_azimuth']
-        join_indices.append(join_id)
-        join_dists.append(join_dist)
+                    # match_azimuth = candidates.loc[match_index]['relative_azimuth']
+                    match_azimuth = candidates.at[match_index, 'relative_azimuth']
+                if match_by_score:
+                    # match_score = scores.loc[match_index]
+                    match_score = scores.at[match_index]
+        
+        # Record match stats
+        match_indices.append(match_id)
+        match_dists.append(match_dist)
+        if length_tolerance:
+            match_lengths.append(match_length)
         if azimuth_tolerance:
-            join_azimuths.append(join_azimuth) 
+            match_azimuths.append(match_azimuth)
+        if match_by_score:
+            match_scores.append(match_score)
+        
         # Report status
         if verbose:
             if counter % round(length / 10) == 0 and counter > 0:
@@ -1207,19 +1319,74 @@ def conflate_lines_by_midpoint(target_features, match_features,
                 minutes = (time()-start) / 60
                 print('{}% ({} segments) complete after {:04.2f} minutes'.format(percent_complete, counter, minutes))
             counter += 1
-    # Merged joined data with target features
-    target_features['join_id'] = pd.Series(join_indices, index=target_features.index)
-    if join_stats:
-        target_features['join_dist'] = pd.Series(join_dists, index=target_features.index)
+       
+    # Merge joined data with target features
+    operating_target_features['match_id'] = pd.Series(
+        match_indices, index=operating_target_features.index)
+    if match_stats:
+        operating_target_features['match_dist'] = pd.Series(
+            match_dists, index=operating_target_features.index)
+        if length_tolerance:
+            operating_target_features['match_length'] = pd.Series(
+                match_lengths, index=operating_target_features.index)
         if azimuth_tolerance:
-            target_features['join_azimuth'] = pd.Series(join_azimuths, index=target_features.index)       
+            operating_target_features['match_azimuth'] = pd.Series(
+                match_azimuths, index=operating_target_features.index)
+        if match_by_score:
+            operating_target_features['match_score'] = pd.Series(
+                match_scores, index=operating_target_features.index)
+    
+    # Join operating target features back onto all target features
+    target_features = target_features.merge(
+        operating_target_features.drop(columns=['geometry']), 
+        how='left', left_index=True, right_index=True)
+
+    # Join fields from match features
+    if match_fields:
+        target_features = target_features.merge(
+            match_features.drop(columns=['geometry']), 
+            how='left', left_on='match_id', right_index=True, suffixes=('_a', '_b'))
+
     # Report done
     if verbose:
         print('100% ({} segments) complete after {:04.2f} minutes'.format(counter, (time()-start) / 60))
-    if join_fields:
-        match_features = match_features.drop(columns=['geometry'])
-        return target_features.merge(
-            match_features, how='left', left_on='join_id', right_index=True, 
-            suffixes=('_a', '_b'))
-    else:
-        return target_features
+
+    return target_features
+
+def directed_hausdorff(a, b):
+    """Calculate the directed Hausdorff distance from shape a to shape b.
+
+    ``a`` and ``b`` must be Shapely geometries
+    """
+    a_nodes = nodes_as_points(a)
+    b_closest_points = [closest_point_along_line(node, b) for node in a_nodes]
+    dists = [a_node.distance(b_point) for a_node, b_point in zip(a_nodes, b_closest_points)]
+    return max(dists)
+
+def gdf_intersecting_polygon(gdf, polygon, gdf_sindex=None, quadrat_size=None):
+    """
+
+    """
+    if not gdf_sindex:
+        gdf_sindex = gdf.sindex
+    if not quadrat_size:
+        minx, miny, maxx, maxy = polygon.bounds
+        max_dimension = max([maxx-minx, maxy-miny])
+        quadrat_size = max_dimension / 10
+    gdf['unique_identifier'] = gdf.index
+    polygon_cut = ox.quadrat_cut_geometry(polygon, quadrat_width=2500)
+    # Find the points that intersect with each subpolygon and add them to points_within_geometry
+    selection = pd.DataFrame()
+    for poly in polygon_cut:
+        # Buffer by the <1 micron dist to account for any space lost in the quadrat cutting
+        # otherwise may miss point(s) that lay directly on quadrat line
+        poly = poly.buffer(1e-14).buffer(0)
+        # Find approximate matches with r-tree, then precise matches from those approximate ones
+        possible_matches_index = list(gdf_sindex.intersection(poly.bounds))
+        possible_matches = gdf.iloc[possible_matches_index]
+        precise_matches = possible_matches[possible_matches.intersects(poly)]
+        selection = selection.append(precise_matches)
+    # Drop duplicate rows intersecting with multiple polygons
+    selection = selection.drop_duplicates(subset=['unique_identifier'])
+    selection = selection.drop(columns=['unique_identifier'])
+    return selection
