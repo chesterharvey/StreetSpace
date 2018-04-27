@@ -250,7 +250,7 @@ def segment(linestring, u, v):
     return LineString(np.flip(np.array(segment), 0)) 
 
 
-def match_point_along_lines(search_point, lines, search_distance=None, 
+def closest_point_along_lines(search_point, lines, search_distance=None, 
     sindex=None):
     """Find the closest position along multiple lines.
 
