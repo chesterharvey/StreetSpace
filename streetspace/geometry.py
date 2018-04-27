@@ -841,7 +841,7 @@ def gdf_clip_line_by_polygon(line_gdf, polygon_gdf):
     return clip_gdf
 
 
-def lines_polygons_intersection(lines, polygons, polygons_sindex=None):
+def lines_polygons_intersection(lines, polygons, polygons_sindex=None, singlepart=False):
     """Finds intersection of all lines with all polygons.
     
     Parameters
@@ -868,23 +868,32 @@ def lines_polygons_intersection(lines, polygons, polygons_sindex=None):
             # print(polygon)
             intersection = line.geometry.intersection(polygon.geometry)
             if isinstance(intersection, (LineString, MultiLineString)):
-                # If input was MultiLineString
-                if type(lines.geometry[0]) == MultiLineString:
+                # If input was MultiLineString, keep as MultiLineString
+                if (type(lines.geometry[0]) == MultiLineString) and not singlepart:
                     # And intersection is only LineString
                     if isinstance(intersection, LineString):
                         # Convert to MultiLineString
                         instersection = MultiLineString([intersection])
-                # Make a copy of the row
-                result_line = line._asdict()
-                # Replace its geometry with the intersection
-                result_line['geometry'] = intersection
-                # Add a field for the polygon id
-                result_line['polygon_id'] = polygon.t
-                # Rename line id field
-                result_line['line_id'] = line.Index
-                result_line.pop('Index')
-                # Append it to the results
-                results = results.append(result_line, ignore_index=True)
+                # If explicitly singlepart, convert MultiLineStrings to LineStrings
+                if singlepart:
+                    if isinstance(intersection, MultiLineString):
+                        intersection = [x for x in intersection]
+                # Make intersection into a list if not already
+                intersection = listify(intersection)
+                # Add row to results for each element in intersection
+                for x in intersection:
+                    # Make a copy of the row
+                    result_line = line._asdict()
+                    # Replace its geometry with the intersection
+                    result_line['geometry'] = x
+                    # Add a field for the polygon id
+                    result_line['polygon_id'] = polygon.Index
+                    # Rename line id field
+                    result_line['line_id'] = line.Index
+                    result_line.pop('Index')
+                    # Append it to the results
+                    results = results.append(result_line, ignore_index=True)
+
     # Ensure that indices are stored as integers
     results['line_id'] = pd.Series(results['line_id'], dtype='int32')
     results['polygon_id'] = pd.Series(results['polygon_id'], dtype='int32')
@@ -973,6 +982,21 @@ def label_features(axis, gdf, label_column, offset, **kwargs):
     """Label features plotted from a geodataframe.
 
     """
+    
+    # shift midpoint randomly +/- 25% of edge length
+    def label_point(feature, jitter = None):
+        """Calculate point for labeling a feature
+
+        ``jitter`` is the proportion of a feature's extent within which to randomly
+        jitter label position relative to the feature's centroid of midpoint.
+
+        """
+        if isinstance(feature, LineString):
+            mid_distance = feature.length / 2
+            if jitter:
+                jitter_dist = feature.length * jitter
+
+
     if isinstance(gdf.iloc[0]['geometry'], LineString):
         gdf.apply(lambda edge: axis.annotate(s=edge[label_column], 
             xy=(midpoint(edge.geometry).x + offset[0], 
