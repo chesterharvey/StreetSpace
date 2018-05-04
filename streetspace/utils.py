@@ -357,4 +357,20 @@ def make_google_maps_url(lat, lon):
     url = url.replace('LON', str(round(lon, 5)))
     return url
 
+def zoom_axis(ax, extent, axis_off=True):
+    """Set extents of MatPlotLib axis
+
+    ax : Matplotlib axis
+
+    extent : (minx, miny, maxx, maxy) tuple
+
+    """
+    minx, miny, maxx, maxy = extent
+    ax.set_xlim(minx, maxx)
+    ax.set_ylim(miny, maxy)
+    if axis_off:
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])
 
