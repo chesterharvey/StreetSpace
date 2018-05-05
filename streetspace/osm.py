@@ -180,11 +180,11 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                     tags[variable_names['bike_lane']] = _identify_any_value_among_keys(
                         tags, keys, values, **bool_codes)
 
-                # Buffered bike lane in any direction (True or nan)
-                if 'buffered_bike_lane' in variable_names.keys():
+                # Separated bike lane in any direction (True or nan)
+                if 'separated_bike_lane' in variable_names.keys():
                     keys = cycleway_keys
                     values = {'track', 'opposite_track', 'buffered_lane'}
-                    tags[variable_names['buffered_bike_lane']] = _identify_any_value_among_keys(
+                    tags[variable_names['separated_bike_lane']] = _identify_any_value_among_keys(
                         tags, keys, values, **bool_codes)
                 
                 # Sharrow in any direction (True or nan)
