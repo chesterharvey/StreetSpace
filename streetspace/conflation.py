@@ -5,6 +5,8 @@
 ##############################################################################
 
 from .geometry import *
+import usaddress
+from fuzzywuzzy import fuzz
 
 def match_lines_by_midpoint(target_features, match_features, distance_tolerance, 
     match_features_sindex=None, azimuth_tolerance=None, length_tolerance=None,
@@ -255,7 +257,7 @@ def match_lines_by_midpoint(target_features, match_features, distance_tolerance,
     # Join fields from match features
     if match_fields:
         target_features = target_features.merge(
-            match_features.drop(columns=['geometry']), 
+            match_features.drop(columns=['geometry']),
             how='left', left_on='match_id', right_index=True, suffixes=('', '_match'))
 
     # Report done
@@ -309,7 +311,7 @@ def find_parallel_segment(a, b, distance_tolerance):
 
 def match_lines_by_hausdorff(target_features, match_features, distance_tolerance, 
     azimuth_tolerance=None, match_features_sindex=None, match_fields=False, match_stats=False, 
-    constrain_target_features=False, target_features_sindex=None,
+    match_strings=None, constrain_target_features=False, target_features_sindex=None,
     match_vectors=False, expand_target_features=False, verbose=False):
     """Conflate attributes between line features based on midpoint proximity.
     
@@ -317,6 +319,8 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     # Copy input features to the function doesn't modify the originals
     target_features = target_features.copy()
     match_features = match_features.copy()
+    original_target_feature_columns = target_features.columns
+    original_crs = target_features.crs
 
     if verbose:
         start = time()
@@ -419,7 +423,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 c_proportion = 1
                 c_segment = candidate.geometry
                 
-            # n:1
+            # m:1
             elif (
                 (candidate.h_tc <= distance_tolerance) and 
                 (candidate.h_ct > distance_tolerance)):
@@ -494,7 +498,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         elif (min(t_proportions) == 1) and (min(c_proportions) == 1):
             match_types.append('1:1')
         elif (min(t_proportions) == 1):
-            match_types.append('n:1')
+            match_types.append('m:1')
         elif (min(c_proportions) == 1):
             match_types.append('1:n')
         else:
@@ -549,20 +553,20 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             match_vectors, index=operating_target_features.index)
 
     # Gather values from fields of match features
-    def lookup_values(match_id, match_features, field):
-        values = []
-        for i in match_id:
-            values.append(match_features.at[i, field])
-        return values
-    if match_fields:
-        # If specified as booleans, get all fields except geometry
-        if type(match_fields) == bool:
-            match_fields = match_features.columns.tolist()
-            match_fields.remove('geometry')
-        for field in match_fields:
-            operating_target_features[field] = (
-                operating_target_features['match_id'].apply(
-                    lookup_values, args=(match_features, field)))
+    if match_fields and isinstance(match_fields, bool):
+        match_fields = match_features.columns.tolist()
+        match_fields.remove('geometry')
+    elif isinstance(match_fields, list):
+        match_fields = match_fields
+    else:
+        match_fields = []
+    if match_strings and (match_strings[1] not in match_fields):
+        match_fields.append(match_strings[1])
+    # Copy over each column in match_fields
+    for field in match_fields:
+        operating_target_features[field] = (
+            operating_target_features['match_id'].apply(
+                lambda x: [match_features.at[i, field] for i in x]))
        
     # Join operating target features back onto all target features
     target_features = target_features.merge(
@@ -577,8 +581,37 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     target_features = target_features.applymap(
         lambda x: x[0] if (isinstance(x, list) and len(x) == 1) else x)
 
+    # Calculate string matches, if specified
+    if match_strings:
+        def fuzzy_score(row, col_a, col_b):
+            a_string = row[col_a]
+            b_string = row[col_b]
+            def standardize_and_score(a_string, b_string):
+                a_string = standardize_streetname(a_string)
+                b_string = standardize_streetname(b_string)
+                return (fuzz.token_set_ratio(a_string, b_string) / 100)
+            if isinstance(b_string, list):
+                return [standardize_and_score(a_string, string) 
+                        if (pd.notnull(a_string) and 
+                            pd.notnull(string)) 
+                        else np.nan
+                        for string in b_string]
+            else:
+                return (standardize_and_score(a_string, b_string) 
+                        if (pd.notnull(a_string) and 
+                            pd.notnull(b_string)) 
+                        else np.nan)
+        target_string, match_string = match_strings
+        if match_string in original_target_feature_columns:
+            match_string = match_string + '_match'
+        target_features['match_strings'] = target_features.apply(
+            fuzzy_score, args=(target_string, match_string), axis=1)
+
     # Expand targets matched with more than one candidate
     if expand_target_features:
+        # Store original target feature IDs
+        target_features = target_features.reset_index().rename(columns={'index': 'orig_index'})
+
         # Look for lists of match IDs in each row
         expanded_targets = []
         for i, target in enumerate(target_features.itertuples()):
@@ -604,10 +637,430 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 return row.geometry
         target_features['geometry'] = target_features.apply(replace_target_segments, axis=1)
         target_features = target_features.drop(columns=['match_t_prop','match_t_seg'])
+        target_features = target_features.sort_values(['orig_index'])
+
+    # Move the geometry column to the end
+    target_features = df_last_column(target_features, 'geometry')
+    # Ensure that crs is the same as original
+    target_features.crs = original_crs
 
     # Report done
     if verbose:
         print('100% ({} segments) complete after {:04.2f} minutes'.format(counter, (time()-start) / 60))
 
     return target_features
+
+
+def _lookup(key, dictionary):
+    if key in dictionary.values():
+        return key
+    elif key in dictionary:
+        return dictionary[key]
+    else:
+        return None 
+
+def _lookup_direction(value):
+    directions = {
+        'north': 'n',
+        'northeast': 'ne',
+        'east': 'e',
+        'southeast': 'se',
+        'south': 's',
+        'southwest': 'sw',
+        'west': 'w',
+        'northwest': 'nw'
+        }
+    value = value.lower()
+    if value in directions:
+        value = _lookup(value, directions)
+    return value.upper()
+
+def _lookup_street_type(value):
+    street_types = {
+        'allee': 'aly',
+        'alley': 'aly',
+        'ally': 'aly',
+        'anex': 'anx',
+        'annex': 'anx',
+        'annx': 'anx',
+        'arcade': 'arc',
+        'av': 'ave',
+        'aven': 'ave',
+        'avenu': 'ave',
+        'avenue': 'ave',
+        'avn': 'ave',
+        'avnue': 'ave',
+        'bayoo': 'byu',
+        'bayou': 'byu',
+        'beach': 'bch',
+        'bend': 'bnd',
+        'bluf': 'blf',
+        'bluff': 'blf',
+        'bluffs': 'blfs',
+        'bot': 'btm',
+        'bottm': 'btm',
+        'bottom': 'btm',
+        'boul': 'blvd',
+        'boulevard': 'blvd',
+        'boulv': 'blvd',
+        'branch': 'br',
+        'brdge': 'brg',
+        'bridge': 'brg',
+        'brnch': 'br',
+        'brook': 'brk',
+        'brooks': 'brks',
+        'burg': 'bg',
+        'burgs': 'bgs',
+        'bypa': 'byp',
+        'bypas': 'byp',
+        'bypass': 'byp',
+        'byps': 'byp',
+        'camp': 'cp',
+        'canyn': 'cyn',
+        'canyon': 'cyn',
+        'cape': 'cpe',
+        'causeway': 'cswy',
+        'causway': 'cswy',
+        'cen': 'ctr',
+        'cent': 'ctr',
+        'center': 'ctr',
+        'centers': 'ctrs',
+        'centr': 'ctr',
+        'centre': 'ctr',
+        'circ': 'cir',
+        'circl': 'cir',
+        'circle': 'cir',
+        'circles': 'cirs',
+        'ck': 'crk',
+        'cliff': 'clf',
+        'cliffs': 'clfs',
+        'club': 'clb',
+        'cmp': 'cp',
+        'cnter': 'ctr',
+        'cntr': 'ctr',
+        'cnyn': 'cyn',
+        'common': 'cmn',
+        'corner': 'cor',
+        'corners': 'cors',
+        'course': 'crse',
+        'court': 'ct',
+        'courts': 'cts',
+        'cove': 'cv',
+        'coves': 'cvs',
+        'cr': 'crk',
+        'crcl': 'cir',
+        'crcle': 'cir',
+        'crecent': 'cres',
+        'creek': 'crk',
+        'crescent': 'cres',
+        'cresent': 'cres',
+        'crest': 'crst',
+        'crossing': 'xing',
+        'crossroad': 'xrd',
+        'crscnt': 'cres',
+        'crsent': 'cres',
+        'crsnt': 'cres',
+        'crssing': 'xing',
+        'crssng': 'xing',
+        'crt': 'ct',
+        'curve': 'curv',
+        'dale': 'dl',
+        'dam': 'dm',
+        'div': 'dv',
+        'divide': 'dv',
+        'driv': 'dr',
+        'drive': 'dr',
+        'drives': 'drs',
+        'drv': 'dr',
+        'dvd': 'dv',
+        'estate': 'est',
+        'estates': 'ests',
+        'exp': 'expy',
+        'expr': 'expy',
+        'express': 'expy',
+        'expressway': 'expy',
+        'expw': 'expy',
+        'extension': 'ext',
+        'extensions': 'exts',
+        'extn': 'ext',
+        'extnsn': 'ext',
+        'falls': 'fls',
+        'ferry': 'fry',
+        'field': 'fld',
+        'fields': 'flds',
+        'flat': 'flt',
+        'flats': 'flts',
+        'ford': 'frd',
+        'fords': 'frds',
+        'forest': 'frst',
+        'forests': 'frst',
+        'forg': 'frg',
+        'forge': 'frg',
+        'forges': 'frgs',
+        'fork': 'frk',
+        'forks': 'frks',
+        'fort': 'ft',
+        'freeway': 'fwy',
+        'freewy': 'fwy',
+        'frry': 'fry',
+        'frt': 'ft',
+        'frway': 'fwy',
+        'frwy': 'fwy',
+        'garden': 'gdn',
+        'gardens': 'gdns',
+        'gardn': 'gdn',
+        'gateway': 'gtwy',
+        'gatewy': 'gtwy',
+        'gatway': 'gtwy',
+        'glen': 'gln',
+        'glens': 'glns',
+        'grden': 'gdn',
+        'grdn': 'gdn',
+        'grdns': 'gdns',
+        'green': 'grn',
+        'greens': 'grns',
+        'grov': 'grv',
+        'grove': 'grv',
+        'groves': 'grvs',
+        'gtway': 'gtwy',
+        'harb': 'hbr',
+        'harbor': 'hbr',
+        'harbors': 'hbrs',
+        'harbr': 'hbr',
+        'haven': 'hvn',
+        'havn': 'hvn',
+        'height': 'hts',
+        'heights': 'hts',
+        'hgts': 'hts',
+        'highway': 'hwy',
+        'highwy': 'hwy',
+        'hill': 'hl',
+        'hills': 'hls',
+        'hiway': 'hwy',
+        'hiwy': 'hwy',
+        'hllw': 'holw',
+        'hollow': 'holw',
+        'hollows': 'holw',
+        'holws': 'holw',
+        'hrbor': 'hbr',
+        'ht': 'hts',
+        'hway': 'hwy',
+        'inlet': 'inlt',
+        'island': 'is',
+        'islands': 'iss',
+        'isles': 'isle',
+        'islnd': 'is',
+        'islnds': 'iss',
+        'jction': 'jct',
+        'jctn': 'jct',
+        'jctns': 'jcts',
+        'junction': 'jct',
+        'junctions': 'jcts',
+        'junctn': 'jct',
+        'juncton': 'jct',
+        'key': 'ky',
+        'keys': 'kys',
+        'knol': 'knl',
+        'knoll': 'knl',
+        'knolls': 'knls',
+        'la': 'ln',
+        'lake': 'lk',
+        'lakes': 'lks',
+        'landing': 'lndg',
+        'lane': 'ln',
+        'lanes': 'ln',
+        'ldge': 'ldg',
+        'light': 'lgt',
+        'lights': 'lgts',
+        'lndng': 'lndg',
+        'loaf': 'lf',
+        'lock': 'lck',
+        'locks': 'lcks',
+        'lodg': 'ldg',
+        'lodge': 'ldg',
+        'loops': 'loop',
+        'manor': 'mnr',
+        'manors': 'mnrs',
+        'meadow': 'mdw',
+        'meadows': 'mdws',
+        'medows': 'mdws',
+        'mill': 'ml',
+        'mills': 'mls',
+        'mission': 'msn',
+        'missn': 'msn',
+        'mnt': 'mt',
+        'mntain': 'mtn',
+        'mntn': 'mtn',
+        'mntns': 'mtns',
+        'motorway': 'mtwy',
+        'mount': 'mt',
+        'mountain': 'mtn',
+        'mountains': 'mtns',
+        'mountin': 'mtn',
+        'mssn': 'msn',
+        'mtin': 'mtn',
+        'neck': 'nck',
+        'orchard': 'orch',
+        'orchrd': 'orch',
+        'overpass': 'opas',
+        'ovl': 'oval',
+        'parks': 'park',
+        'parkway': 'pkwy',
+        'parkways': 'pkwy',
+        'parkwy': 'pkwy',
+        'passage': 'psge',
+        'paths': 'path',
+        'pikes': 'pike',
+        'pine': 'pne',
+        'pines': 'pnes',
+        'pk': 'park',
+        'pkway': 'pkwy',
+        'pkwys': 'pkwy',
+        'pky': 'pkwy',
+        'place': 'pl',
+        'plain': 'pln',
+        'plaines': 'plns',
+        'plains': 'plns',
+        'plaza': 'plz',
+        'plza': 'plz',
+        'point': 'pt',
+        'points': 'pts',
+        'port': 'prt',
+        'ports': 'prts',
+        'prairie': 'pr',
+        'prarie': 'pr',
+        'prk': 'park',
+        'prr': 'pr',
+        'rad': 'radl',
+        'radial': 'radl',
+        'radiel': 'radl',
+        'ranch': 'rnch',
+        'ranches': 'rnch',
+        'rapid': 'rpd',
+        'rapids': 'rpds',
+        'rdge': 'rdg',
+        'rest': 'rst',
+        'ridge': 'rdg',
+        'ridges': 'rdgs',
+        'river': 'riv',
+        'rivr': 'riv',
+        'rnchs': 'rnch',
+        'road': 'rd',
+        'roads': 'rds',
+        'route': 'rte',
+        'rvr': 'riv',
+        'shoal': 'shl',
+        'shoals': 'shls',
+        'shoar': 'shr',
+        'shoars': 'shrs',
+        'shore': 'shr',
+        'shores': 'shrs',
+        'skyway': 'skwy',
+        'spng': 'spg',
+        'spngs': 'spgs',
+        'spring': 'spg',
+        'springs': 'spgs',
+        'sprng': 'spg',
+        'sprngs': 'spgs',
+        'spurs': 'spur',
+        'sqr': 'sq',
+        'sqre': 'sq',
+        'sqrs': 'sqs',
+        'squ': 'sq',
+        'square': 'sq',
+        'squares': 'sqs',
+        'station': 'sta',
+        'statn': 'sta',
+        'stn': 'sta',
+        'str': 'st',
+        'strav': 'stra',
+        'strave': 'stra',
+        'straven': 'stra',
+        'stravenue': 'stra',
+        'stravn': 'stra',
+        'stream': 'strm',
+        'street': 'st',
+        'streets': 'sts',
+        'streme': 'strm',
+        'strt': 'st',
+        'strvn': 'stra',
+        'strvnue': 'stra',
+        'sumit': 'smt',
+        'sumitt': 'smt',
+        'summit': 'smt',
+        'terr': 'ter',
+        'terrace': 'ter',
+        'throughway': 'trwy',
+        'tpk': 'tpke',
+        'tr': 'trl',
+        'trace': 'trce',
+        'traces': 'trce',
+        'track': 'trak',
+        'tracks': 'trak',
+        'trafficway': 'trfy',
+        'trail': 'trl',
+        'trails': 'trl',
+        'trk': 'trak',
+        'trks': 'trak',
+        'trls': 'trl',
+        'trnpk': 'tpke',
+        'trpk': 'tpke',
+        'tunel': 'tunl',
+        'tunls': 'tunl',
+        'tunnel': 'tunl',
+        'tunnels': 'tunl',
+        'tunnl': 'tunl',
+        'turnpike': 'tpke',
+        'turnpk': 'tpke',
+        'underpass': 'upas',
+        'union': 'un',
+        'unions': 'uns',
+        'valley': 'vly',
+        'valleys': 'vlys',
+        'vally': 'vly',
+        'vdct': 'via',
+        'viadct': 'via',
+        'viaduct': 'via',
+        'view': 'vw',
+        'views': 'vws',
+        'vill': 'vlg',
+        'villag': 'vlg',
+        'village': 'vlg',
+        'villages': 'vlgs',
+        'ville': 'vl',
+        'villg': 'vlg',
+        'villiage': 'vlg',
+        'vist': 'vis',
+        'vista': 'vis',
+        'vlly': 'vly',
+        'vst': 'vis',
+        'vsta': 'vis',
+        'walks': 'walk',
+        'well': 'wl',
+        'wells': 'wls',
+        'wy': 'way',
+        }
+    value = value.lower()
+    if value in street_types:
+        value = _lookup(value, street_types)
+    return value.title()
+    
+def standardize_streetname(name):
+    try:
+        tagged_streetname, _ = usaddress.tag(name)
+        for key, value in tagged_streetname.items():
+            if key == 'StreetNamePreModifier':
+                tagged_streetname[key] = value.title()
+            elif key == 'StreetNamePreDirectional':
+                tagged_streetname[key] = _lookup_direction(value)
+            elif key == 'StreetName':
+                tagged_streetname[key] = value.title()
+            elif key == 'StreetNamePostType':
+                tagged_streetname[key] = _lookup_street_type(value)
+            else:
+                tagged_streetname[key] = value
+        return ' '.join(tagged_streetname.values())
+    except usaddress.RepeatedLabelError as e:
+        # If tagging streetname parts fails, return original string
+        return e.original_string
 

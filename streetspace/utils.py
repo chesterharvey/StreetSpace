@@ -340,14 +340,17 @@ def insert_dummies(df, field, prefix=False, drop_field=True):
     """Create dummy fields and insert them in place of the original field.
 
     """
+    df = df.copy()
     dummies = pd.get_dummies(df[field])
     if prefix:
         dummies = dummies.add_prefix(prefix)
     orig_idx = df.columns.get_loc(field)
     for i, column in enumerate(dummies.columns):
-        df.insert(orig_idx + i, column, dummies[column])
+        if column not in df.columns:
+            df.insert(orig_idx + i, column, dummies[column])
     if drop_field:
-        df = df.drop([field], axis=1)
+        if field in df.columns:
+            df = df.drop([field], axis=1)
     return df
 
 
@@ -373,4 +376,12 @@ def zoom_axis(ax, extent, axis_off=True):
         ax.set_yticklabels([])
         ax.set_xticks([])
         ax.set_yticks([])
+
+
+def select_columns(df, columns):
+    """Select columns from a dataframe if they are in the dataframe
+    
+    """
+    columns = [x for x in columns if x in df.columns]
+    return df[columns].copy()
 
