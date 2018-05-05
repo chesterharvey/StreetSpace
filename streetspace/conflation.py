@@ -308,7 +308,7 @@ def find_parallel_segment(a, b, distance_tolerance):
 
 
 def match_lines_by_hausdorff(target_features, match_features, distance_tolerance, 
-    match_features_sindex=None, match_fields=False, match_stats=False, 
+    azimuth_tolerance=None, match_features_sindex=None, match_fields=False, match_stats=False, 
     constrain_target_features=False, target_features_sindex=None,
     match_vectors=False, expand_target_features=False, verbose=False):
     """Conflate attributes between line features based on midpoint proximity.
@@ -361,7 +361,9 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         search_area = target.buffer(distance_tolerance).bounds
         candidate_IDs = list(match_features_sindex.intersection(search_area))
         candidates = match_features[['geometry']].iloc[candidate_IDs].reset_index()
-        
+
+        # return target, candidates
+       
         # Calculate Hausdorff distances from feature to each candidate (h_fc)
         h_tc_list = [directed_hausdorff(target, candidate) for candidate in candidates.geometry]
         candidates['h_tc'] = pd.Series(h_tc_list)
@@ -379,6 +381,19 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         c_proportions = []
         c_segments = []
 
+        # Define function to compare major axis azimuths
+        def azimuth_match(target, candidate, azimuth_tolerance):
+            if azimuth_tolerance:
+                target_azimuth = major_axis_azimuth(target)
+                candidate_azimuth = major_axis_azimuth(candidate)
+                azimuth_difference_ = azimuth_difference(target_azimuth, candidate_azimuth, directional=False)
+                if azimuth_difference_ <= azimuth_tolerance:
+                    return True
+                else:
+                    return False
+            else:
+                return True
+
         # Examine each candidate's relationship to the target feature
         for candidate in candidates.itertuples():
             
@@ -393,7 +408,8 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             # 1:1
             if (
                 (candidate.h_tc <= distance_tolerance) and 
-                (candidate.h_ct <= distance_tolerance)):
+                (candidate.h_ct <= distance_tolerance) and
+                azimuth_match(target, candidate.geometry, azimuth_tolerance)):
                 # Whole target matches candidate
                 h_tc = candidate.h_tc
                 t_proportion = 1
@@ -411,7 +427,8 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 candidate_segment = find_parallel_segment(
                     target, candidate.geometry, distance_tolerance)
 
-                if candidate_segment:
+                if (candidate_segment and 
+                    azimuth_match(target, candidate_segment, azimuth_tolerance)):
                     # Whole target matches candidate
                     h_tc = candidate.h_tc
                     t_proportion = 1
@@ -428,7 +445,8 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 # Find the target segment matching the candidate
                 target_segment = find_parallel_segment(
                     candidate.geometry, target, distance_tolerance)
-                if target_segment:
+                if (target_segment and
+                    azimuth_match(target_segment, candidate.geometry, azimuth_tolerance)):
                     # Calculate proportion of target included in segment
                     h_tc = candidate.h_tc
                     t_proportion = target_segment.length / target.length
@@ -449,14 +467,15 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                     target, candidate.geometry, distance_tolerance)
                 # Measure hausdorff distance (non-directed) between parallel segments
                 if target_segment and candidate_segment:
-                    h_tc_segments = directed_hausdorff(target_segment, candidate_segment)
-                    h_ct_segments = directed_hausdorff(candidate_segment, target_segment)
-                    if ((h_tc_segments <= distance_tolerance) and 
-                        (h_ct_segments <= distance_tolerance)):
-                        h_tc = h_tc_segments
+                    h_tc_segment = directed_hausdorff(target_segment, candidate_segment)
+                    h_ct_segment = directed_hausdorff(candidate_segment, target_segment)
+                    if ((h_tc_segment <= distance_tolerance) and 
+                        (h_ct_segment <= distance_tolerance) and
+                        azimuth_match(target_segment, candidate_segment, azimuth_tolerance)):
+                        h_tc = h_tc_segment
                         t_proportion = target_segment.length / target.length
                         t_segment = target_segment
-                        h_ct = h_ct_segments
+                        h_ct = h_ct_segment
                         c_proportion = candidate_segment.length / candidate.geometry.length
                         c_segment = candidate_segment
                                      

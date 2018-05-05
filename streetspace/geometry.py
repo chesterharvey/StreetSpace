@@ -1299,3 +1299,19 @@ def gdf_intersecting_polygon(gdf, polygon, gdf_sindex=None, quadrat_size=None):
     selection = selection.drop_duplicates(subset=['unique_identifier'])
     selection = selection.drop(columns=['unique_identifier'])
     return selection
+
+
+def major_axis_azimuth(polygon):
+    """Calculate the azimuth of a LineString's or Polygon's major axis
+
+    """
+    rectangle = polygon.minimum_rotated_rectangle
+    if isinstance(rectangle, LineString):
+        longest_sides = [rectangle]
+    else:
+        sides = split_line_at_vertices(rectangle.boundary)
+        lengths = [x.length for x in sides]
+        longest_sides = [side for side, length 
+            in zip(sides, lengths) if length == max(lengths)]
+    azimuths = [azimuth(x) for x in longest_sides]    
+    return max(azimuths)
