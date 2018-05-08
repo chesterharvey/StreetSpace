@@ -311,8 +311,8 @@ def find_parallel_segment(a, b, distance_tolerance):
 
 def match_lines_by_hausdorff(target_features, match_features, distance_tolerance, 
     azimuth_tolerance=None, match_features_sindex=None, match_fields=False, match_stats=False, 
-    match_strings=None, constrain_target_features=False, target_features_sindex=None,
-    match_vectors=False, expand_target_features=False, verbose=False):
+    field_suffixes=('', '_match'), match_strings=None, constrain_target_features=False, 
+    target_features_sindex=None, match_vectors=False, expand_target_features=False, verbose=False):
     """Conflate attributes between line features based on midpoint proximity.
     
     """
@@ -361,21 +361,6 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     # Iterate through target features:
     for i, target in enumerate(operating_target_features.geometry):
 
-        # Roughly filter candidates with a spatial index
-        search_area = target.buffer(distance_tolerance).bounds
-        candidate_IDs = list(match_features_sindex.intersection(search_area))
-        candidates = match_features[['geometry']].iloc[candidate_IDs].reset_index()
-
-        # return target, candidates
-       
-        # Calculate Hausdorff distances from feature to each candidate (h_fc)
-        h_tc_list = [directed_hausdorff(target, candidate) for candidate in candidates.geometry]
-        candidates['h_tc'] = pd.Series(h_tc_list)
-
-        # Calculate Hausdorff distances from each candidate to feature (h_cf)
-        h_ct_list = [directed_hausdorff(candidate, target) for candidate in candidates.geometry]
-        candidates['h_ct'] = pd.Series(h_ct_list)        
-
         # Initiate lists to store matches
         match_ids = []
         h_tcs = []
@@ -385,124 +370,147 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         c_proportions = []
         c_segments = []
 
-        # Define function to compare major axis azimuths
-        def azimuth_match(target, candidate, azimuth_tolerance):
-            if azimuth_tolerance:
-                target_azimuth = major_axis_azimuth(target)
-                candidate_azimuth = major_axis_azimuth(candidate)
-                azimuth_difference_ = azimuth_difference(target_azimuth, candidate_azimuth, directional=False)
-                if azimuth_difference_ <= azimuth_tolerance:
-                    return True
+        # Only analyze targets with length
+        if target.length > 0:
+
+            # Roughly filter candidates with a spatial index
+            search_area = target.buffer(distance_tolerance).bounds
+            candidate_IDs = list(match_features_sindex.intersection(search_area))
+            candidates = match_features[['geometry']].iloc[candidate_IDs].reset_index()
+          
+            # Calculate Hausdorff distances from feature to each candidate (h_fc)
+            h_tc_list = [directed_hausdorff(target, candidate) for candidate in candidates.geometry]
+            candidates['h_tc'] = pd.Series(h_tc_list)
+
+            # Calculate Hausdorff distances from each candidate to feature (h_cf)
+            h_ct_list = [directed_hausdorff(candidate, target) for candidate in candidates.geometry]
+            candidates['h_ct'] = pd.Series(h_ct_list)
+
+            # Define function to compare major axis azimuths
+            def azimuth_match(target, candidate, azimuth_tolerance):
+                if azimuth_tolerance:
+                    target_azimuth = major_axis_azimuth(target)
+                    candidate_azimuth = major_axis_azimuth(candidate)
+                    azimuth_difference_ = azimuth_difference(target_azimuth, candidate_azimuth, directional=False)
+                    if azimuth_difference_ <= azimuth_tolerance:
+                        return True
+                    else:
+                        return False
                 else:
-                    return False
-            else:
-                return True
+                    return True
 
-        # Examine each candidate's relationship to the target feature
-        for candidate in candidates.itertuples():
-            
-            # Initialize default match values
-            h_tc = None
-            t_proportion = None
-            t_segment = None
-            h_ct = None
-            c_proportion = None
-            c_segment = None
-            
-            # 1:1
-            if (
-                (candidate.h_tc <= distance_tolerance) and 
-                (candidate.h_ct <= distance_tolerance) and
-                azimuth_match(target, candidate.geometry, azimuth_tolerance)):
-                # Whole target matches candidate
-                h_tc = candidate.h_tc
-                t_proportion = 1
-                t_segment = target
-                # Whole candidate matches target
-                h_ct = candidate.h_ct
-                c_proportion = 1
-                c_segment = candidate.geometry
+            # Examine each candidate's relationship to the target feature
+            for candidate in candidates.itertuples():
+
+                # Only analyze candidates with length
+                if candidate.geometry.length > 0:
                 
-            # m:1
-            elif (
-                (candidate.h_tc <= distance_tolerance) and 
-                (candidate.h_ct > distance_tolerance)):
-                # Find the candidate segment matching the target
-                candidate_segment = find_parallel_segment(
-                    target, candidate.geometry, distance_tolerance)
+                    # Initialize default match values
+                    h_tc = None
+                    t_proportion = None
+                    t_segment = None
+                    h_ct = None
+                    c_proportion = None
+                    c_segment = None
+                    
+                    # 1:1
+                    if (
+                        (candidate.h_tc <= distance_tolerance) and 
+                        (candidate.h_ct <= distance_tolerance) and
+                        azimuth_match(target, candidate.geometry, azimuth_tolerance)):
+                        # Whole target matches candidate
+                        h_tc = candidate.h_tc
+                        t_proportion = 1
+                        t_segment = target
+                        # Whole candidate matches target
+                        h_ct = candidate.h_ct
+                        c_proportion = 1
+                        c_segment = candidate.geometry
+                        
+                    # m:1
+                    elif (
+                        (candidate.h_tc <= distance_tolerance) and 
+                        (candidate.h_ct > distance_tolerance)):
+                        # Find the candidate segment matching the target
+                        candidate_segment = find_parallel_segment(
+                            target, candidate.geometry, distance_tolerance)
 
-                if (candidate_segment and 
-                    azimuth_match(target, candidate_segment, azimuth_tolerance)):
-                    # Whole target matches candidate
-                    h_tc = candidate.h_tc
-                    t_proportion = 1
-                    t_segment = target
-                    # Calculate proportion of candidate included in segment
-                    h_ct = candidate.h_ct
-                    c_proportion = candidate_segment.length / candidate.geometry.length
-                    c_segment = candidate_segment
+                        if (candidate_segment and 
+                            candidate_segment.length > 0 and
+                            azimuth_match(target, candidate_segment, azimuth_tolerance)):
+                            # Whole target matches candidate
+                            h_tc = candidate.h_tc
+                            t_proportion = 1
+                            t_segment = target
+                            # Calculate proportion of candidate included in segment
+                            h_ct = candidate.h_ct
+                            c_proportion = candidate_segment.length / candidate.geometry.length
+                            c_segment = candidate_segment
 
-            # 1:n
-            elif (
-                (candidate.h_tc > distance_tolerance) and 
-                (candidate.h_ct <= distance_tolerance)):
-                # Find the target segment matching the candidate
-                target_segment = find_parallel_segment(
-                    candidate.geometry, target, distance_tolerance)
-                if (target_segment and
-                    azimuth_match(target_segment, candidate.geometry, azimuth_tolerance)):
-                    # Calculate proportion of target included in segment
-                    h_tc = candidate.h_tc
-                    t_proportion = target_segment.length / target.length
-                    t_segment = target_segment
-                    # Whole candidate matches target
-                    h_ct = candidate.h_ct
-                    c_proportion = 1
-                    c_segment = candidate.geometry
-            
-            # potential m:n
-            elif (
-                (candidate.h_tc > distance_tolerance) and 
-                (candidate.h_ct > distance_tolerance)):
-                # See if parallel segments can be identified
-                target_segment = find_parallel_segment(
-                    candidate.geometry, target, distance_tolerance)
-                candidate_segment = find_parallel_segment(
-                    target, candidate.geometry, distance_tolerance)
-                # Measure hausdorff distance (non-directed) between parallel segments
-                if target_segment and candidate_segment:
-                    h_tc_segment = directed_hausdorff(target_segment, candidate_segment)
-                    h_ct_segment = directed_hausdorff(candidate_segment, target_segment)
-                    if ((h_tc_segment <= distance_tolerance) and 
-                        (h_ct_segment <= distance_tolerance) and
-                        azimuth_match(target_segment, candidate_segment, azimuth_tolerance)):
-                        h_tc = h_tc_segment
-                        t_proportion = target_segment.length / target.length
-                        t_segment = target_segment
-                        h_ct = h_ct_segment
-                        c_proportion = candidate_segment.length / candidate.geometry.length
-                        c_segment = candidate_segment
-                                     
-            if t_proportion is not None:
-                match_ids.append(candidate.index)
-                h_tcs.append(h_tc)
-                t_proportions.append(t_proportion)
-                t_segments.append(t_segment)
-                h_cts.append(h_ct)
-                c_proportions.append(c_proportion)
-                c_segments.append(c_segment)
+                    # 1:n
+                    elif (
+                        (candidate.h_tc > distance_tolerance) and 
+                        (candidate.h_ct <= distance_tolerance)):
+                        # Find the target segment matching the candidate
+                        target_segment = find_parallel_segment(
+                            candidate.geometry, target, distance_tolerance)
+                        if (target_segment and 
+                            target_segment.length > 0 and
+                            azimuth_match(target_segment, candidate.geometry, azimuth_tolerance)):
+                            # Calculate proportion of target included in segment
+                            h_tc = candidate.h_tc
+                            t_proportion = target_segment.length / target.length
+                            t_segment = target_segment
+                            # Whole candidate matches target
+                            h_ct = candidate.h_ct
+                            c_proportion = 1
+                            c_segment = candidate.geometry
+                    
+                    # potential m:n
+                    elif (
+                        (candidate.h_tc > distance_tolerance) and 
+                        (candidate.h_ct > distance_tolerance)):
+                        # See if parallel segments can be identified
+                        target_segment = find_parallel_segment(
+                            candidate.geometry, target, distance_tolerance)
+                        candidate_segment = find_parallel_segment(
+                            target, candidate.geometry, distance_tolerance)
+                        # Measure hausdorff distance (non-directed) between parallel segments
+                        if target_segment and candidate_segment:
+                            h_tc_segment = directed_hausdorff(target_segment, candidate_segment)
+                            h_ct_segment = directed_hausdorff(candidate_segment, target_segment)
+                            if ((h_tc_segment <= distance_tolerance) and
+                                (h_ct_segment <= distance_tolerance) and
+                                target_segment.length > 0 and
+                                candidate_segment.length > 0 and
+                                azimuth_match(target_segment, candidate_segment, azimuth_tolerance)):
+                                h_tc = h_tc_segment
+                                t_proportion = target_segment.length / target.length
+                                t_segment = target_segment
+                                h_ct = h_ct_segment
+                                c_proportion = candidate_segment.length / candidate.geometry.length
+                                c_segment = candidate_segment
+                                             
+                    if t_proportion is not None:
+                        match_ids.append(candidate.index)
+                        h_tcs.append(h_tc)
+                        t_proportions.append(t_proportion)
+                        t_segments.append(t_segment)
+                        h_cts.append(h_ct)
+                        c_proportions.append(c_proportion)
+                        c_segments.append(c_segment)
 
-        # Determine match type
-        if len(t_proportions) == 0:
-            match_types.append('1:0')
-        elif (min(t_proportions) == 1) and (min(c_proportions) == 1):
-            match_types.append('1:1')
-        elif (min(t_proportions) == 1):
-            match_types.append('m:1')
-        elif (min(c_proportions) == 1):
-            match_types.append('1:n')
-        else:
-            match_types.append('m:n')
+            # Determine match type
+            if len(t_proportions) == 0:
+                match_types.append('1:0')
+            elif (min(t_proportions) == 1) and (min(c_proportions) == 1):
+                match_types.append('1:1')
+            elif (min(t_proportions) == 1):
+                match_types.append('m:1')
+            elif (min(c_proportions) == 1):
+                match_types.append('1:n')
+            else:
+                match_types.append('m:n')
 
         # Record match stats
         match_indices.append(match_ids)
@@ -571,7 +579,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     # Join operating target features back onto all target features
     target_features = target_features.merge(
         operating_target_features.drop(columns=['geometry']), 
-        how='left', left_index=True, right_index=True, suffixes=('', '_match'))
+        how='left', left_index=True, right_index=True, suffixes=field_suffixes)
 
     # Convert empty lists to NaN
     target_features = target_features.applymap(
@@ -584,26 +592,30 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     # Calculate string matches, if specified
     if match_strings:
         def fuzzy_score(row, col_a, col_b):
-            a_string = row[col_a]
-            b_string = row[col_b]
-            def standardize_and_score(a_string, b_string):
-                a_string = standardize_streetname(a_string)
-                b_string = standardize_streetname(b_string)
-                return (fuzz.token_set_ratio(a_string, b_string) / 100)
-            if isinstance(b_string, list):
-                return [standardize_and_score(a_string, string) 
-                        if (pd.notnull(a_string) and 
-                            pd.notnull(string)) 
-                        else np.nan
-                        for string in b_string]
+            a = row[col_a]
+            b = row[col_b]
+            def standardize_and_score(a, b):
+                a = standardize_streetname(str(a))
+                b = standardize_streetname(str(b))
+                return (fuzz.token_set_ratio(a, b) / 100)
+            # Inputs could be lists, so make them lists if they aren't
+            a_list = listify(a)
+            b_list = listify(b)
+            # Get fuzzy scores for each string combination
+            scores = []
+            for a in a_list:
+                for b in b_list:
+                    if (pd.notnull(a) and pd.notnull(b)):
+                        scores.append(standardize_and_score(a, b))
+            if len(scores) > 0:
+                return scores
             else:
-                return (standardize_and_score(a_string, b_string) 
-                        if (pd.notnull(a_string) and 
-                            pd.notnull(b_string)) 
-                        else np.nan)
+                return np.nan
+
         target_string, match_string = match_strings
         if match_string in original_target_feature_columns:
-            match_string = match_string + '_match'
+            target_string = target_string + field_suffixes[0]
+            match_string = match_string + field_suffixes[1]
         target_features['match_strings'] = target_features.apply(
             fuzzy_score, args=(target_string, match_string), axis=1)
 

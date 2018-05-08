@@ -7,6 +7,7 @@
 import numpy as np
 import pandas as pd
 import subprocess
+import collections
 
 def listify(x):
     """Puts non-list objects into a list. 
@@ -336,12 +337,14 @@ def map_new_column(df, column, func):
     return df
 
 
-def insert_dummies(df, field, prefix=False, drop_field=True):
+def insert_dummies(df, field, prefix=False, drop_field=True, zero_value=0):
     """Create dummy fields and insert them in place of the original field.
 
     """
     df = df.copy()
     dummies = pd.get_dummies(df[field])
+    if zero_value != 0:
+        dummies = dummies.replace(0, zero_value)
     if prefix:
         dummies = dummies.add_prefix(prefix)
     orig_idx = df.columns.get_loc(field)
@@ -378,10 +381,29 @@ def zoom_axis(ax, extent, axis_off=True):
         ax.set_yticks([])
 
 
-def select_columns(df, columns):
+def select_columns(df, columns, prefix=None, suffix=None):
     """Select columns from a dataframe if they are in the dataframe
     
     """
     columns = [x for x in columns if x in df.columns]
-    return df[columns].copy()
+    df = df[columns].copy()
+    if prefix:
+        columns = [prefix + x for x in df.columns]
+        df.columns = columns
+    if suffix:
+        columns = [x + suffix for x in df.columns]
+        df.columns = columns 
+    return df
+
+
+def nan_any(input, true_value=True, false_value=False):
+    """Test whether element contains any True values, excluding NaN
+    """
+    if not isinstance(input, collections.Iterable):
+        input = listify(input)
+    if any(np.nan_to_num(input)):
+        return true_value
+    else:
+        return false_value
+
 

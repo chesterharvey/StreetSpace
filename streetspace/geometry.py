@@ -1148,7 +1148,6 @@ def plot_shapes(shapes, ax=None, axis_off=True, size=8, extent=None,
         
         else:
             ax.axis('equal')
-            # ax.axis('square')
             if axis_off:
                 ax.axis('off')
 
@@ -1308,10 +1307,15 @@ def major_axis_azimuth(polygon):
     rectangle = polygon.minimum_rotated_rectangle
     if isinstance(rectangle, LineString):
         longest_sides = [rectangle]
+    # elif isinstance(rectangle, Point):
+    #     return 0
     else:
-        sides = split_line_at_vertices(rectangle.boundary)
-        lengths = [x.length for x in sides]
-        longest_sides = [side for side, length 
-            in zip(sides, lengths) if length == max(lengths)]
+        try:
+            sides = split_line_at_vertices(rectangle.boundary)
+            lengths = [x.length for x in sides]
+            longest_sides = [side for side, length 
+                in zip(sides, lengths) if length == max(lengths)]
+        except:
+            print(type(polygon), polygon, type(rectangle), rectangle)
     azimuths = [azimuth(x) for x in longest_sides]    
     return max(azimuths)

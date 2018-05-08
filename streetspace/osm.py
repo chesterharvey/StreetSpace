@@ -10,6 +10,7 @@ import re
 import numpy as np
 import streetspace as sp
 import re
+import osmnx as ox
 
 def _key_in_set(key, keys, keys_regex=False):
     if keys_regex:
@@ -208,6 +209,13 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                     tags[variable_names['bike_route']] = _identify_any_value_among_keys(
                         tags, keys, values, **bool_codes)
 
+                # Bike boulevard in any direction (True or nan)
+                if 'bike_blvd' in variable_names.keys():
+                    keys = {'highway'}
+                    values = {'living_street'}
+                    tags[variable_names['bike_blvd']] = _identify_any_value_among_keys(
+                        tags, keys, values, **bool_codes)
+
                 # Off Street Path (True or nan)
                 if 'off_street_path' in variable_names.keys():
                     keys = {'highway'}
@@ -331,7 +339,7 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
     return overpass_json 
 
 
-def retrieve_overpass_json(wgs_polygon=None, path=None):
+def retrieve_overpass_json(wgs_polygon=None, path=None,  network_type='all_private', custom_filter=None):
     """Download Overpass JSON based on polygon boundary
     or retrieve from file based on path.
     
@@ -357,7 +365,8 @@ def retrieve_overpass_json(wgs_polygon=None, path=None):
             with open(path, 'w') as outfile:
                 json.dump(json_, outfile)
         # Download OSM jsons
-        osm_jsons = ox.osm_net_download(wgs_polygon)
+        osm_jsons = ox.osm_net_download(
+            wgs_polygon, network_type=network_type, custom_filter=custom_filter)
         # Combine the list of jsons
         osm_json = merge_overpass_jsons(osm_jsons)
         # Save to file
