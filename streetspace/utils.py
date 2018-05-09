@@ -405,5 +405,3 @@ def nan_any(input, true_value=True, false_value=False):
         return true_value
     else:
         return false_value
-
-
