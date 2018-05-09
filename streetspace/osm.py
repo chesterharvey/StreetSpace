@@ -339,6 +339,15 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
     return overpass_json 
 
 
+def merge_overpass_jsons(jsons):
+    """Merge a list of overpass JSONs into a single JSON
+    """
+    elements = []
+    for osm_json in jsons:
+        elements.extend(osm_json['elements'])
+    return {'elements': elements}
+
+
 def retrieve_overpass_json(wgs_polygon=None, path=None,  network_type='all_private', custom_filter=None):
     """Download Overpass JSON based on polygon boundary
     or retrieve from file based on path.
@@ -355,11 +364,11 @@ def retrieve_overpass_json(wgs_polygon=None, path=None,  network_type='all_priva
             return osm_json
     if wgs_polygon:
         # Define function to merge JSONs
-        def merge_overpass_jsons(jsons):
-            elements = []
-            for osm_json in jsons:
-                elements.extend(osm_json['elements'])
-            return {'elements': elements}
+        # def merge_overpass_jsons(jsons):
+        #     elements = []
+        #     for osm_json in jsons:
+        #         elements.extend(osm_json['elements'])
+        #     return {'elements': elements}
         # Define function to save JSON
         def save_json(json_, path):
             with open(path, 'w') as outfile:
