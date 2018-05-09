@@ -1294,10 +1294,11 @@ def gdf_intersecting_polygon(gdf, polygon, gdf_sindex=None, quadrat_size=None):
         possible_matches = gdf.iloc[possible_matches_index]
         precise_matches = possible_matches[possible_matches.intersects(poly)]
         selection = selection.append(precise_matches)
-    # Drop duplicate rows intersecting with multiple polygons
-    selection = selection.drop_duplicates(subset=['unique_identifier'])
-    selection = selection.drop(columns=['unique_identifier'])
-    return selection
+    if len(selection) > 0:
+        # Drop duplicate rows intersecting with multiple polygons
+        selection = selection.drop_duplicates(subset=['unique_identifier'])
+        selection = selection.drop(columns=['unique_identifier'])
+        return selection
 
 
 def major_axis_azimuth(polygon):
