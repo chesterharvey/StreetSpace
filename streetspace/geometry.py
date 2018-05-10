@@ -1,5 +1,3 @@
-"""Functions to manipulate Shapely geometries."""
-
 ##############################################################################
 # Module: geometry.py
 # Description: Functions to manipulate Shapely geometries.

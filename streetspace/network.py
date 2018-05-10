@@ -1,5 +1,3 @@
-"""Functions to manipulate and analyze NetworkX graphs."""
-
 ################################################################################
 # Module: network.py
 # Description: Functions to manipulate and analyze NetworkX graphs.

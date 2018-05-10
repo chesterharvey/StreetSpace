@@ -14,7 +14,96 @@ def match_lines_by_midpoint(target_features, match_features, distance_tolerance,
     constrain_target_features=False, target_features_sindex=None,
     match_vectors=False, verbose=False):
     """Conflate attributes between line features based on midpoint proximity.
-    
+
+    Finds the midpoint of all target features and matches them to the closest
+    match feature meeting the specified tolerances.
+
+    Parameters
+    ----------
+    target_features : :class:`geopandas.GeoDataFrame`
+        Features to which ``match_features`` will be matched.
+        Must have LineString geometries.
+        All ``target_features`` will be included in output, with or without a match.
+
+    match_features : :class:`geopandas.GeoDataFrame`
+        Features to be matched to ``target_features``.
+        Must have LineString geometries.
+        Only successfully matched features will be included in output.
+        Multiple ``match_features`` may be matched to a single target feature.
+        Must have the same spatial reference as ``target_features``.
+
+    distance_tolerance : :obj:`float`
+        Maximum distance from each target feature midpoint to the closest point
+        along candidate ``match_features``.
+        In spatial unit of ``target_features``.
+
+    match_features_sindex : :class:`rtree.index.Index`, optional, default = ``None``
+        Spatial index for ``match_features``.
+        If provided, will not have to be constructed for each function call.
+
+    azimuth_tolerance : :obj:`float`, optional, default = ``None``
+        Maximum azimuth difference (in degrees) between target feature and potential match features.
+        Value of 0 specifies that target and match features must be perfectly aligned.
+        Value of 90 specifies that target and match features may be perpendicular.
+        Azimuth difference will never exceed 90 degrees.
+        If ``None``, azimuth difference will not be used as a criteria for matching.
+
+    length_tolerance: :obj:`float`, optional, default = ``None``
+        Maximum length difference between target feature and potential match features.
+        Value of 0 specifies that target and match features must be exactly the same length.
+        Large value specifies that target and match may be substantially different lengths.
+        Length difference is calculated as an absolute value
+            (e.g., target or match feature may be longer or shorter than the other)
+        If ``None``, length difference will not be used as a criteria for matching.
+
+    incidence_tolerance: :obj:`float`, optional, default = ``None``
+        Maximum angle of incidence between target feature midpoint and closest point of potential match features.
+        Measured in degrees difference from perpendiular to the target feature at its midpoint.
+        Value of 0 specifies that the angle of incidence must be exactly 90 degrees
+            (e.g., match feature overlaps target midpoint)
+        Value of 90 specifies that match features may be non-overlapping and in-line with target feature.
+        If ``None``, angle of incidence will not be used as a criteria for matching.
+
+    match_by_score: :obj:`bool`, optional, default = ``False``
+        * ``True``: All specified tolerances will be used to compute a score for each candidate;
+            the final match will be selected based on the lowest score. The score will equally weight
+            all specified tolerances.
+        * ``False``: Specified tolerances will be used to restrict match candidates,
+            but final match will be identified solely based on midpoint distance.
+        
+    match_fields: :obj:`bool`, optional, default = ``False``
+        * ``True``: Fields from match features will be included in output.
+        * ``False``: Only row indices for match features will be included in output.
+
+    match_stats: :obj:`bool`, optional, default = ``False``
+        * ``True``: Statistics related to tolerances will be included in output.
+        * ``False``: No match statistics will be included in ouput.
+
+    constrain_target_features: :obj:`bool`, optional, default = ``False``
+        * ``True``: Extents of ``match_features``, plus a ``distance_tolerance`` buffer
+             will be used to select relevent ``target_features`` prior to matching. 
+             When the extent or number of ``match_features`` is small relative to
+            ``target_features``, this dramatically improves performance because fewer
+            ``target_features`` are analyzed for potential matches.
+        * ``False``: All ``target_features`` are analyzed for potential matches.
+
+    target_features_sindex: :class:`rtree.index.Index`, optional, default = ``None``
+        If ``constrain_target_features=True``, a spatial index for the ``target_features``
+        will be computed unless one is provided. If the same ``target_features`` are specified 
+        in multiple function calls, pre-computing a spatial index will improve performance.
+        If ``constrain_target_features=False``, ``target_features_sindex`` is unnecessary.
+
+    match_vectors: :obj:`bool`, optional, default = ``False``
+        * ``True``: Constructs LineStrings between midpoint of ``target_features`` and the
+        closest points along matched ``match_features``. Useful for vizualizing match results.
+
+    verbose: :obj:`bool`, optional, default = ``False``
+        * ``True``: Reports status by printing to standard output
+
+    Returns
+    -------
+    :class:`geopandas.GeoDataFrame`
+        Same row indices as ``target_features``
     """
     # Copy input features to the function doesn't modify the originals
     target_features = target_features.copy()
@@ -269,9 +358,23 @@ def match_lines_by_midpoint(target_features, match_features, distance_tolerance,
 
 def find_parallel_segment(a, b, distance_tolerance):
     """Identify a segment of line b that runs parallel to line a.
-    
-    """
 
+    Parameters
+    ----------
+    a : :class:`shapely.geometry.LineString`
+        LineString along which to find a parallel segment from ``b``.
+
+    b : :class:`shapely.geometry.LineString`
+        LineString from which to find a segment this is parallel to ``a``.
+
+    distance_tolerance : :obj:`float`
+        Maximum distance that a potential segment of ``b`` may be from ``a``.
+
+    Returns
+    -------
+    :class:`shapely.geometry.LineString`
+        Segment of ``b`` running parallel to ``a``.
+    """
     def endpoint_near_endpoint(a_endpoint, b_endpoints):
         for b_endpoint in b_endpoints:
             if a_endpoint.distance(b_endpoint) <= distance_tolerance:
@@ -313,8 +416,86 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     azimuth_tolerance=None, match_features_sindex=None, match_fields=False, match_stats=False, 
     field_suffixes=('', '_match'), match_strings=None, constrain_target_features=False, 
     target_features_sindex=None, match_vectors=False, expand_target_features=False, verbose=False):
-    """Conflate attributes between line features based on midpoint proximity.
+    """Conflate attributes between line features based on Hausdorff distance.
     
+    target_features : :class:`geopandas.GeoDataFrame`
+        Features to which ``match_features`` will be matched.
+        Must have LineString geometries.
+        All ``target_features`` will be included in output, with or without a match.
+
+    match_features : :class:`geopandas.GeoDataFrame`
+        Features to be matched to ``target_features``.
+        Must have LineString geometries.
+        Only successfully matched features will be included in output.
+        Multiple ``match_features`` may be matched to a single target feature.
+        Must have the same spatial reference as ``target_features``.
+
+    distance_tolerance : :obj:`float`
+        Maximum Hausdorff distance between each target feature and candidate ``match_features``
+        Because directed Hausdorff distances are calculated from target to match
+            and match to target, ``distance_tolerance`` will be assessed based on
+            the smaller of these two values.
+        If feature segments are matched (e.g., 1:n, m:1, or m:n),
+            Hausdorff distances are calculated for each segment.
+        In spatial unit of ``target_features``.
+
+    azimuth_tolerance : :obj:`float`, optional, default = ``None``
+        Maximum azimuth difference (in degrees) between target feature and potential match features.
+        Feature azimuths are calculated as the azimuth of the feature's "major axis"
+            (the longest axis of the feature's minimum bounding rectangle).
+        If feature segments are matched (e.g., 1:n, m:1, or m:n),
+            azimuths are calculated for each segment.   
+
+    match_features_sindex : :class:`rtree.index.Index`, optional, default = ``None``
+        Spatial index for ``match_features``.
+        If provided, will not have to be constructed for each function call.
+
+    match_fields: :obj:`bool`, optional, default = ``False``
+        * ``True``: Fields from match features will be included in output.
+        * ``False``: Only row indices for match features will be included in output.
+
+    match_stats: :obj:`bool`, optional, default = ``False``
+        * ``True``: Statistics related to tolerances will be included in output.
+        * ``False``: No match statistics will be included in ouput.
+
+    field_suffixes: :obj:`tuple`, optional, default = ``('', '_match')``
+        Suffixes to be appended to output field names for ``target_features`` 
+            and ``match_features``, respectively.
+        Only used if  ``match_stats=True``.
+
+    match_strings: :obj:`tuple`, optional, default = ``None``
+        Fields used to compute fuzzy string comparisions.
+        Typically, these are street name fields for the ``target_features`` 
+            and ``match_features``, respectively.
+        String comparisions do not affect matches, but can be post-processed to
+            help assess match quality.
+
+    constrain_target_features: :obj:`bool`, optional, default = ``False``
+        * ``True``: Extents of ``match_features``, plus a ``distance_tolerance`` buffer,
+            will be used to select relevent ``target_features`` prior to matching. 
+            When the extent or number of ``match_features`` is small relative to
+            ``target_features``, this dramatically improves performance because fewer
+            ``target_features`` are analyzed for potential matches.
+        * ``False``: All ``target_features`` are analyzed for potential matches.
+
+    target_features_sindex: :class:`rtree.index.Index`, optional, default = ``None``
+        If ``constrain_target_features=True``, a spatial index for the ``target_features``
+        will be computed unless one is provided. If the same ``target_features`` are specified 
+        in multiple function calls, pre-computing a spatial index will improve performance.
+        If ``constrain_target_features=False``, ``target_features_sindex`` is unnecessary.
+
+    match_vectors: :obj:`bool`, optional, default = ``False``
+        * ``True``: Constructs LineStrings between midpoint of ``target_features`` and the
+        closest points along matched ``match_features``. Useful for vizualizing match results.
+
+    expand_target_features: :obj:`bool`, optional, default = ``False``
+        * ``True`` : Target features that match to multiple ``match_features`` will be expanded
+        into multiple segments, each corresponding to a single match feature. Each target feature
+        segment will be output as a seperate record with an index field identifying original
+        row-wise indices from ``target_features``.
+
+    verbose: :obj:`bool`, optional, default = ``False``
+        * ``True``: Reports status by printing to standard output
     """
     # Copy input features to the function doesn't modify the originals
     target_features = target_features.copy()
@@ -664,6 +845,8 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
 
 
 def _lookup(key, dictionary):
+    """Lookup a key among either a dictionary's keys or values.
+    """
     if key in dictionary.values():
         return key
     elif key in dictionary:
@@ -672,6 +855,8 @@ def _lookup(key, dictionary):
         return None 
 
 def _lookup_direction(value):
+    """Convert directions to abbreviations.
+    """
     directions = {
         'north': 'n',
         'northeast': 'ne',
@@ -688,6 +873,8 @@ def _lookup_direction(value):
     return value.upper()
 
 def _lookup_street_type(value):
+    """Convert street types to abbreviations.
+    """
     street_types = {
         'allee': 'aly',
         'alley': 'aly',
@@ -1058,6 +1245,19 @@ def _lookup_street_type(value):
     return value.title()
     
 def standardize_streetname(name):
+    """Standardize street names with title case and common abbreviations.
+
+    Parameters
+    ----------
+    name : :obj:`str`
+        Street name to standardize
+
+    Results
+    -------
+    :obj:`str`
+        Standardized street name.
+        If unable to standardize, original street name.
+    """
     try:
         tagged_streetname, _ = usaddress.tag(name)
         for key, value in tagged_streetname.items():

@@ -1,5 +1,3 @@
-"""Functions to analyze streetscapes."""
-
 ##############################################################################
 # Module: streetscape.py
 # Description: Functions to analyze streetscapes.

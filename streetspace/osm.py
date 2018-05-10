@@ -11,15 +11,44 @@ import numpy as np
 import streetspace as sp
 import re
 import osmnx as ox
+from .utils import *
 
 def _key_in_set(key, keys, keys_regex=False):
+    """Determine whether ``key`` is among ``keys``, with or without regex
+    """
     if keys_regex:
         return any(re.compile(k).match(key) for k in keys)
     else:
         return key in keys
 
 def _parse_osm_number(value, length=False, distance=False, speed=False, none_value=np.nan):
-    # If it can be converted to a float, return that
+    """Parse OSM strings representing numbers into standardized floats.
+
+    Parameters
+    ----------
+    value : :obj:`str`
+        Raw value from OSM
+    length : :obj:`bool`, optional, default=False
+        * ``True`` : Value should be treated like a length;
+        common length units (m, km, ft, in, mi) will be parsed and converted to meters
+        * ``False`` : Units will be stripped but not parsed/converted
+    distance : :obj:`bool`, optional, default=False
+        * ``True`` : Value should be treated like a distance;
+        common distance units (m, km, ft, in, mi) will be parsed and converted to kilometers
+        * ``False`` : Units will be stripped but not parsed/converted
+    speed : :obj:`bool`, optional, default=False
+        * ``True`` : Value should be treated like a speed;
+        common speed units (kph, mph) will be parsed and converted to kilometers/hr
+        * ``False`` : Units will be stripped but not parsed/converted
+    none_value : :obj:`float`, optional, default=np.nan
+        Value to return if no number can be parsed.
+
+    Returns
+    -------
+    :obj:`float`
+        Parsed/converted number
+    """
+    # If value can be converted directly to a float, return that
     try:
         return float(value)
     except:               
@@ -59,15 +88,43 @@ def _parse_osm_number(value, length=False, distance=False, speed=False, none_val
             return none_value
 
 
-def _identify_any_value_among_keys(tags_dict, keys, values, false_values=False, 
-    keys_regex=False, true_value=True, false_value=False, none_value=None):
-    """Returns `true_value` (default = `True`) if any of `values` is in any 
-    of `keys`.
+def _identify_any_value_among_keys(tags_dict, keys, values, false_values=None,
+    true_value=True, false_value=False, none_value=None, keys_regex=False):
+    """Identify whether any of `values` is in any of `keys` in `tags_dict`.
 
-    Otherwise, returns `none_value` (default = `None`).
+    Parameters
+    ----------
+    tags_dict : :obj:`dict`
+        Dictionary of tags related to OSM element
 
-    Returns `false_value` (default = `False`) if any of `false_values` are
-    found and none of `values` are found.
+    keys : :obj:`set`
+        Keys in ``tags_dict`` to search for ``values``.
+        If any ``keys`` are not in ``tags_dict``, returns ``none_value``
+
+    values : :obj:`set`
+        Values to find within ``keys``
+
+    false_values : :obj:`set`
+        Potential tag values that explicitly indicate falsity (e.g., 'no')
+
+    true_value : any type, optional, default = ``True``
+        Value to return if any of ``keys`` are found in any of ``values``.
+
+    false_value : any type, optional, default = ``False``
+        Value to return if none of ``keys`` are found in any of ``values`` and
+        any of ``false_values` are found in any of ``values``
+
+    none_value : any type, optional, default = ``None``
+        Value to return if none of ``keys`` or ``false_values`` are found in
+        any of ``values``.
+
+    keys_regex : :obj:`bool`, optional, default = ``False``
+        * ``True`` : keys will be identified using regex
+
+    Returns
+    -------
+    ``true_value``, ``false_value``, or ``none_value``
+
     """
     findings = []
     for key, value in tags_dict.items():
@@ -85,20 +142,61 @@ def _identify_any_value_among_keys(tags_dict, keys, values, false_values=False,
         return none_value
 
 
-def _summarize_number_among_keys(tags_dict, keys, summary_function=sp.first, 
+def _summarize_number_among_keys(tags_dict, keys, summary_function=first, 
     keys_regex=False, length=False, distance=False, speed=False, 
     none_value=np.nan, **unused):
-    """Returns a summary of parsed numbers found in all 'keys'.
+    """Returns a summary of parsed numbers found in all ``keys``.
 
     By default, returns the first recognized number, parsed as a float.
 
-    A custom `summary_function`, operating on a list of floats, can be passed 
-    to provide a different summary of available values (e.g., `sum` or `max`).
+    A custom ``summary_function``, operating on a list of floats, can be passed 
+    to provide a different summary of available values (e.g., ``sum`` or ``max``).
 
-    Numbers are parsed from strings using '_parse_osm_number'. If `length`,
-    `distance`, or `speed` are set to True, numbers with units will be
+    Numbers are parsed from strings using ``_parse_osm_number``. If ``length``,
+    ``distance``, or ``speed`` are set to ``True``, numbers with units will be
     converted to standard OSM units (m, km, and kph respectively). Otherwise,
     parsed numbers are returned raw, no matter their documented unit.
+
+    Parameters
+    ----------
+    tags_dict : :obj:`dict`
+        Dictionary of tags related to OSM element
+
+    keys : :obj:`set`
+        Keys in ``tags_dict`` to search for numbers.
+        If any ``keys`` are not in ``tags_dict``, returns ``none_value``
+
+    summary_function : function, optional, default=``first``
+        Function with which to summarize multiple numbers.
+        Must operate on a list.
+        ``first`` is defined in the ``utils`` module. Equivalent to ``list[0]``.
+
+    keys_regex : :obj:`bool`, optional, default = ``False``
+        * ``True`` : keys will be identified using regex
+
+    length : :obj:`bool`, optional, default=False
+        * ``True`` : Value should be treated like a length;
+        common length units (m, km, ft, in, mi) will be parsed and converted to meters
+        * ``False`` : Units will be stripped but not parsed/converted
+    distance : :obj:`bool`, optional, default=False
+        * ``True`` : Value should be treated like a distance;
+        common distance units (m, km, ft, in, mi) will be parsed and converted to kilometers
+        * ``False`` : Units will be stripped but not parsed/converted
+    speed : :obj:`bool`, optional, default=False
+        * ``True`` : Value should be treated like a speed;
+        common speed units (kph, mph) will be parsed and converted to kilometers/hr
+        * ``False`` : Units will be stripped but not parsed/converted
+
+    none_value : :obj:`float`, optional, default = ``np.nan``
+        Value to return if none of ``keys`` or ``false_values`` are found in
+        any of ``values``.
+
+    Additional keyword arguments will be accepted but left unused.
+
+    Returns
+    -------
+    :obj:`float`
+        Summary of numbers identified in ``keys``
     """
     findings = []
     for key, value in tags_dict.items():
@@ -147,11 +245,60 @@ def _count_value_instances_among_keys(tags_dict, keys, values, full_match=True,
 
 def parse_osm_tags(overpass_json, variable_names, true_value=True, 
     false_value=False, none_value=np.nan):
-    """
+    """Identify the presense or scalar measure of particular features based on OSM tags.
 
-    variable_names : either a list of variables to parse, or a dictionary
-    with variables as keys and names to use for parsed variables as values
+    Uses pre-specified key:value combinations to identify features.
 
+    overpass_json : :obj:`dict`
+        Dictionary representation of JSON from overpass API.
+        Designed for output from ``retrieve_overpass_json`` or ``merge_overpass_jsons``.
+
+    variable_names : :obj:`list` or :obj:`dict`
+        If list, must contain any of the following variables as strings.
+            e.g., ``['bike_lane', 'traffic_signal']``
+        If dictionary, keys must be an of the following variables as strings. Values must be strings,
+            which will be used in place of these variable names in the output dictionary.
+            e.g., ``{'bike_lane': 'bicycle_lane', 'traffic_signal': 'stop_light'}``
+        Way and node variables should be included together in ``variable_names`` (see examples, above),
+            but variables will only be parsed for their respective element type.
+        Available way variables (measure type):
+            'bike_lane' (Boolean)
+            'separated_bike_lane' (Boolean)
+            'sharrow' (Boolean)
+            'shoulder' (Boolean)
+            'bike_route' (Boolean)
+            'bike_blvd' (Boolean)
+            'off_street_path' (Boolean)
+            'bike_facility_width' (Scalar)
+            'bike_facility_buffer_width' (Scalar)
+            'parallel_parking' (Boolean)
+            'perpendicular_parking' (Boolean)
+            'oneway' (Boolean)
+            'curb_to_curb_width' (Scalar)
+            'lanes' (Count)
+            'center_turn_lane' (Boolean)
+            'speed_limit' (Scalar)
+            'right_turn_lanes' (Count)
+            'left_turn_lanes' (Count)
+        Available node variables (measure type):
+            'traffic_signal' (Boolean)
+            'stop_sign' (Boolean)
+
+    true_value : any type, optional, default = ``True``
+        Value to return if any of ``keys`` are found in any of ``values``.
+
+    false_value : any type, optional, default = ``False``
+        Value to return if none of ``keys`` are found in any of ``values`` and
+        any of ``false_values` are found in any of ``values``
+
+    none_value : any type, optional, default = ``np.nan``
+        Value to return if none of ``keys`` or ``false_values`` are found in
+        any of ``values``.
+
+    Returns
+    -------
+    :obj:`dict`
+        ``overpass_json`` with keys added for each of ``variable_names``
     """
     
     # If variables names is list, make into dictionary
@@ -340,7 +487,17 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
 
 
 def merge_overpass_jsons(jsons):
-    """Merge a list of overpass JSONs into a single JSON
+    """Merge a list of overpass JSONs into a single JSON.
+
+    Parameters
+    ----------
+    jsons : :obj:`list`
+        List of dictionaries representing Overpass JSONs.
+
+    Returns
+    -------
+    :obj:`dict`
+        Dictionary containing all elements from input JSONS.
     """
     elements = []
     for osm_json in jsons:
@@ -348,12 +505,35 @@ def merge_overpass_jsons(jsons):
     return {'elements': elements}
 
 
-def retrieve_overpass_json(wgs_polygon=None, path=None,  network_type='all_private', custom_filter=None):
-    """Download Overpass JSON based on polygon boundary
-    or retrieve from file based on path.
+def retrieve_overpass_json(wgs_polygon=None, path=None, network_type='all_private', 
+    custom_filter=None):
+    """Download and pickle Overpass JSON, or retrieve pickled version.
+
+    Parameters
+    ----------
+    wgs_polygon : :class:`shapely.geometry.Polygon`, optional, default = ``None``
+        Polygon defining area to be downloaded.
+        Must be in WGS coordinates (lon/lat)
+        If ``None``, ``path`` must be specified and JSON will be retreived from ``path``
     
-    ``wgs_polygon`` must be a Shapely Polygon defined in WGS
-    coordinates (lon/lat)    
+    path : :obj:`str`, optional, default = ``None``
+        Path at which to pickle downloaded JSON
+        Include file name and extension.
+        e.g., ``'data/overpass_download.json'``
+        If ``None``, ``wgs_polygon`` must be specified and JSON will be downloaded but not pickled
+
+    network_type :obj:`str`, optional, default = ``'all_private'``
+        Type of network to download.
+        Reference OSMnx documentation.
+
+    custom_filter :obj:`str`, optional, default = ``None``
+        Custom tag filter for Overpass query.
+        Reference OSMnx documentation.
+
+    Returns
+    -------
+    :obj:`dict`
+        Dictionary representing Overpass JSON.
     """
     if path:
         # Check to see if file already exists
@@ -363,12 +543,6 @@ def retrieve_overpass_json(wgs_polygon=None, path=None,  network_type='all_priva
                 osm_json = json.load(f)
             return osm_json
     if wgs_polygon:
-        # Define function to merge JSONs
-        # def merge_overpass_jsons(jsons):
-        #     elements = []
-        #     for osm_json in jsons:
-        #         elements.extend(osm_json['elements'])
-        #     return {'elements': elements}
         # Define function to save JSON
         def save_json(json_, path):
             with open(path, 'w') as outfile:
@@ -387,6 +561,25 @@ def retrieve_overpass_json(wgs_polygon=None, path=None,  network_type='all_priva
 
 
 def examine_tags(overpass_json, specific_tags=None):
+    """Examine tags within an Overpass JSON.
+
+    Outputs seperate dictionaries summarizing tags in way and node elements.
+    Counts unique key:value pairs.
+
+    Parameters
+    ----------
+    overpass_json : :obj:`dict`
+        Dictionary representing Overpass JSON.
+
+    specific_tags : :obj:`list`
+        List of tags to examine. All other tags will be ignored.
+
+    Returns
+    -------
+        * node_tags : :obj:`dict`
+        * way_tags : :obj:`dict`
+
+    """
     def _count_tags(element, tags_dict, specific_tags):
         if 'tags' in element:
             for key, value in element['tags'].items():
