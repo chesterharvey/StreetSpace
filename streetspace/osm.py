@@ -8,7 +8,6 @@ from pathlib import Path
 import json
 import re
 import numpy as np
-import streetspace as sp
 import re
 import osmnx as ox
 from .utils import *
