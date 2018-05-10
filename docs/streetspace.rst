@@ -5,7 +5,7 @@ Submodules
 ----------
 
 streetspace\.streetscape module
-----------------------------
+-------------------------------
 
 .. automodule:: streetspace.streetscape
     :members:
