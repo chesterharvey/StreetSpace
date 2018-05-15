@@ -1318,3 +1318,33 @@ def major_axis_azimuth(polygon):
             print(type(polygon), polygon, type(rectangle), rectangle)
     azimuths = [azimuth(x) for x in longest_sides]    
     return max(azimuths)
+
+
+def remove_invalid_geometries(gdf):
+    """Remove GeoDataFrame rows with non-standard geometries.
+
+    """
+    geom_types = (Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon)
+    for row in gdf.itertuples():
+        if not isinstance(row.geometry, geom_types):
+            gdf.drop([row.Index], inplace=True)
+    return gdf
+
+
+def singlepart(gdf):
+    """Convert GeoDataFrame geometries to singlepart.
+
+    """
+    for row in gdf.itertuples():
+        if isinstance(row.geometry, (MultiPoint, MultiLineString, MultiPolygon)):
+            # Divide into individual shapes
+            shapes = [x for x in row.geometry]
+            # Make a new row for each individual shape
+            for shape in shapes:
+                new_row = row._asdict()
+                new_row['geometry'] = shape
+                new_row.pop('Index', None)
+                gdf = gdf.append(new_row, ignore_index=True)
+            # Drop original column
+            gdf.drop(row.Index, inplace=True)
+    return gdf

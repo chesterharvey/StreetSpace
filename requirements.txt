@@ -9,3 +9,4 @@ osmnx>=0.7.1
 usaddress
 fuzzywuzzy
 mplleaflet
+python-Levenshtein
