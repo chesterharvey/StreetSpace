@@ -1240,15 +1240,20 @@ def azimuth_difference(azimuth_a, azimuth_b, directional=True):
     return difference
 
 
-def closest_point_along_line(point, line):
+def closest_point_along_line(point, line, return_linear_reference=False):
     """Return the point along a line that is closest to another point.
 
     ``point`` must be a Shapely Point.
 
     ``line`` must be a Shapely LineString.
     """
-    return line.interpolate(line.project(point))
-
+    lin_ref = line.project(point)
+    point = line.interpolate(lin_ref)
+    if return_linear_reference:
+        return point, lin_ref
+    else:
+        return point
+    
 
 def vertices_to_points(shape):
     """Return vertices of a shape as a list of points.
@@ -1324,6 +1329,7 @@ def remove_invalid_geometries(gdf):
     """Remove GeoDataFrame rows with non-standard geometries.
 
     """
+    gdf=gdf.copy()
     geom_types = (Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon)
     for row in gdf.itertuples():
         if not isinstance(row.geometry, geom_types):
@@ -1335,6 +1341,13 @@ def singlepart(gdf):
     """Convert GeoDataFrame geometries to singlepart.
 
     """
+    gdf = gdf.copy()
+    # Make a static version of the index
+    static_index = 'index'
+    while static_index in gdf.columns:
+        static_index = static_index + '_'
+    gdf[static_index] = gdf.index
+    # Look through each row to see if geometry is multipart
     for row in gdf.itertuples():
         if isinstance(row.geometry, (MultiPoint, MultiLineString, MultiPolygon)):
             # Divide into individual shapes
@@ -1345,6 +1358,8 @@ def singlepart(gdf):
                 new_row['geometry'] = shape
                 new_row.pop('Index', None)
                 gdf = gdf.append(new_row, ignore_index=True)
-            # Drop original column
-            gdf.drop(row.Index, inplace=True)
+            # Get current index of row based on the static index
+            current_index = gdf.loc[gdf[static_index] == row._asdict()[static_index]].index[0]
+            # Drop original row
+            gdf.drop(current_index, inplace=True)
     return gdf

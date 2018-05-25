@@ -7,6 +7,7 @@
 from .geometry import *
 import usaddress
 from fuzzywuzzy import fuzz
+import shapely as sh
 
 def match_lines_by_midpoint(target_features, match_features, distance_tolerance, 
     match_features_sindex=None, azimuth_tolerance=None, length_tolerance=None,
@@ -411,11 +412,18 @@ def find_parallel_segment(a, b, distance_tolerance):
             adjacent_segment = along[0]
     return adjacent_segment
 
+def segment_linear_reference(line, segment):
+    """Calculate linear references of segment endpoints relative to a parent LineString
+
+    """
+    return tuple([line.project(x) for x in endpoints(segment)])
+
 
 def match_lines_by_hausdorff(target_features, match_features, distance_tolerance, 
     azimuth_tolerance=None, match_features_sindex=None, match_fields=False, match_stats=False, 
     field_suffixes=('', '_match'), match_strings=None, constrain_target_features=False, 
-    target_features_sindex=None, match_vectors=False, expand_target_features=False, verbose=False):
+    target_features_sindex=None, match_vectors=False, expand_target_features=False, 
+    closest_match=False, closest_target=False, verbose=False):
     """Conflate attributes between line features based on Hausdorff distance.
     
     target_features : :class:`geopandas.GeoDataFrame`
@@ -450,27 +458,27 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         Spatial index for ``match_features``.
         If provided, will not have to be constructed for each function call.
 
-    match_fields: :obj:`bool`, optional, default = ``False``
+    match_fields : :obj:`bool`, optional, default = ``False``
         * ``True``: Fields from match features will be included in output.
         * ``False``: Only row indices for match features will be included in output.
 
-    match_stats: :obj:`bool`, optional, default = ``False``
+    match_stats : :obj:`bool`, optional, default = ``False``
         * ``True``: Statistics related to tolerances will be included in output.
         * ``False``: No match statistics will be included in ouput.
 
-    field_suffixes: :obj:`tuple`, optional, default = ``('', '_match')``
+    field_suffixes : :obj:`tuple`, optional, default = ``('', '_match')``
         Suffixes to be appended to output field names for ``target_features`` 
             and ``match_features``, respectively.
         Only used if  ``match_stats=True``.
 
-    match_strings: :obj:`tuple`, optional, default = ``None``
+    match_strings : :obj:`tuple`, optional, default = ``None``
         Fields used to compute fuzzy string comparisions.
         Typically, these are street name fields for the ``target_features`` 
             and ``match_features``, respectively.
         String comparisions do not affect matches, but can be post-processed to
             help assess match quality.
 
-    constrain_target_features: :obj:`bool`, optional, default = ``False``
+    constrain_target_features : :obj:`bool`, optional, default = ``False``
         * ``True``: Extents of ``match_features``, plus a ``distance_tolerance`` buffer,
             will be used to select relevent ``target_features`` prior to matching. 
             When the extent or number of ``match_features`` is small relative to
@@ -478,24 +486,35 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             ``target_features`` are analyzed for potential matches.
         * ``False``: All ``target_features`` are analyzed for potential matches.
 
-    target_features_sindex: :class:`rtree.index.Index`, optional, default = ``None``
+    target_features_sindex : :class:`rtree.index.Index`, optional, default = ``None``
         If ``constrain_target_features=True``, a spatial index for the ``target_features``
         will be computed unless one is provided. If the same ``target_features`` are specified 
         in multiple function calls, pre-computing a spatial index will improve performance.
         If ``constrain_target_features=False``, ``target_features_sindex`` is unnecessary.
 
-    match_vectors: :obj:`bool`, optional, default = ``False``
+    match_vectors : :obj:`bool`, optional, default = ``False``
         * ``True``: Constructs LineStrings between midpoint of ``target_features`` and the
         closest points along matched ``match_features``. Useful for vizualizing match results.
 
-    expand_target_features: :obj:`bool`, optional, default = ``False``
+    expand_target_features : :obj:`bool`, optional, default = ``False``
         * ``True`` : Target features that match to multiple ``match_features`` will be expanded
         into multiple segments, each corresponding to a single match feature. Each target feature
         segment will be output as a seperate record with an index field identifying original
         row-wise indices from ``target_features``.
 
-    verbose: :obj:`bool`, optional, default = ``False``
-        * ``True``: Reports status by printing to standard output
+    closest_match : :obj:`bool`, optional, default = ``False``
+        * ``True`` : Only the closest available match feature will be matched to each target
+            feature, based on Hausdorff distance
+        * ``False`` : All available match features will match to each target feature
+
+    closest_target : :obj:`bool`, optional, default = ``False``
+        * ``True`` : A target feature will only match with a match feature if it is the closest
+            available target, based on Hausdorff distance
+        * ``False`` : A target feature will match with all available match features, regardless
+            of whether it has also matched with other target features
+
+    verbose : :obj:`bool`, optional, default = ``False``
+        * ``True`` : Reports status by printing to standard output
     """
     # Copy input features to the function doesn't modify the originals
     target_features = target_features.copy()
@@ -533,9 +552,11 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     match_h_tc = []
     match_t_props = []
     match_t_segs = []
+    match_t_linrefs = []
     match_h_ct = []
     match_c_props = []
     match_c_segs = []
+    match_c_linrefs = []
     if match_vectors:
         match_vectors = []
       
@@ -547,9 +568,11 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         h_tcs = []
         t_proportions = []
         t_segments = []
+        t_linrefs = []
         h_cts = []
         c_proportions = []
         c_segments = []
+        c_linrefs = []
 
         # Only analyze targets with length
         if target.length > 0:
@@ -590,23 +613,29 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                     h_tc = None
                     t_proportion = None
                     t_segment = None
+                    t_linref = None
                     h_ct = None
                     c_proportion = None
                     c_segment = None
+                    c_linref = None
+                    
                     
                     # 1:1
                     if (
                         (candidate.h_tc <= distance_tolerance) and 
                         (candidate.h_ct <= distance_tolerance) and
+                        # Check that azimuth is acceptable
                         azimuth_match(target, candidate.geometry, azimuth_tolerance)):
                         # Whole target matches candidate
                         h_tc = candidate.h_tc
                         t_proportion = 1
                         t_segment = target
+                        t_linref = (0, target.length)
                         # Whole candidate matches target
                         h_ct = candidate.h_ct
                         c_proportion = 1
                         c_segment = candidate.geometry
+                        c_linref = (0, candidate.geometry.length)
                         
                     # m:1
                     elif (
@@ -623,10 +652,12 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                             h_tc = candidate.h_tc
                             t_proportion = 1
                             t_segment = target
+                            t_linref = (0, target.length)
                             # Calculate proportion of candidate included in segment
                             h_ct = candidate.h_ct
                             c_proportion = candidate_segment.length / candidate.geometry.length
                             c_segment = candidate_segment
+                            c_linref = segment_linear_reference(candidate.geometry, candidate_segment)
 
                     # 1:n
                     elif (
@@ -642,10 +673,12 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                             h_tc = candidate.h_tc
                             t_proportion = target_segment.length / target.length
                             t_segment = target_segment
+                            t_linref = segment_linear_reference(target, target_segment)
                             # Whole candidate matches target
                             h_ct = candidate.h_ct
                             c_proportion = 1
                             c_segment = candidate.geometry
+                            c_linref = (0, candidate.geometry.length)
                     
                     # potential m:n
                     elif (
@@ -668,19 +701,25 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                                 h_tc = h_tc_segment
                                 t_proportion = target_segment.length / target.length
                                 t_segment = target_segment
+                                t_linref = segment_linear_reference(target, target_segment)
                                 h_ct = h_ct_segment
                                 c_proportion = candidate_segment.length / candidate.geometry.length
                                 c_segment = candidate_segment
+                                c_linref = segment_linear_reference(candidate.geometry, candidate_segment)
                                              
                     if t_proportion is not None:
                         match_ids.append(candidate.index)
                         h_tcs.append(h_tc)
                         t_proportions.append(t_proportion)
                         t_segments.append(t_segment)
+                        t_linrefs.append(t_linref)
                         h_cts.append(h_ct)
                         c_proportions.append(c_proportion)
                         c_segments.append(c_segment)
+                        c_linrefs.append(c_linref)
 
+            
+            ####### DOUBLE CHECK THAT THESE ARE ASSIGNED PROPERLY #######
             # Determine match type
             if len(t_proportions) == 0:
                 match_types.append('1:0')
@@ -691,16 +730,18 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             elif (min(c_proportions) == 1):
                 match_types.append('1:n')
             else:
-                match_types.append('m:n')
+                match_types.append('m:n')    
 
         # Record match stats
         match_indices.append(match_ids)
         match_h_tc.append(h_tcs)
         match_t_props.append(t_proportions)
         match_t_segs.append(t_segments)
+        match_t_linrefs.append(t_linrefs)
         match_h_ct.append(h_cts)
         match_c_props.append(c_proportions)
         match_c_segs.append(c_segments)
+        match_c_linrefs.append(c_linrefs)
 
         # Construct match vector
         if isinstance(match_vectors, list):
@@ -723,23 +764,135 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         match_types, index=operating_target_features.index)
     operating_target_features['match_id'] = pd.Series(
         match_indices, index=operating_target_features.index)
-    
-    if match_stats:
+    if match_stats or closest_match or closest_target or expand_target_features:
         operating_target_features['match_h_tc'] = pd.Series(
             match_h_tc, index=operating_target_features.index)
         operating_target_features['match_t_prop'] = pd.Series(
             match_t_props, index=operating_target_features.index)
         operating_target_features['match_t_seg'] = pd.Series(
             match_t_segs, index=operating_target_features.index)
+        operating_target_features['match_t_linrefs'] = pd.Series(
+            match_t_linrefs, index=operating_target_features.index)
         operating_target_features['match_h_ct'] = pd.Series(
             match_h_ct, index=operating_target_features.index)
         operating_target_features['match_c_prop'] = pd.Series(
             match_c_props, index=operating_target_features.index)
         operating_target_features['match_c_seg'] = pd.Series(
             match_c_segs, index=operating_target_features.index)
+        operating_target_features['match_c_linrefs'] = pd.Series(
+            match_c_linrefs, index=operating_target_features.index)
     if isinstance(match_vectors, list):
         operating_target_features['match_vectors'] = pd.Series(
             match_vectors, index=operating_target_features.index)
+
+    # Store original target feature IDs
+    operating_target_features = operating_target_features.reset_index().rename(columns={'index': 'target_index'})
+
+    # Expand targets matched with more than one candidate
+    # This is required if 'closest_match' is specified
+    if closest_match or closest_target or expand_target_features:
+
+        # Look for lists of match IDs in each row
+        expanded_targets = []
+        for i, target in enumerate(operating_target_features.itertuples()):
+            if isinstance(target.match_id, list):
+                # Make duplicate rows for each match ID with respective attributes
+                for j, match in enumerate(target.match_id):
+                    new_row = target._asdict()
+                    new_row.pop('Index', None)
+                    for key, value in target._asdict().items():
+                        if isinstance(value, list):
+                            new_row[key] = value[j]
+                    # Append new row to end of dataframe
+                    operating_target_features = operating_target_features.append(new_row, ignore_index=True)
+                # Mark original row for deletion
+                expanded_targets.append(i)
+        # Delete expanded targets
+        operating_target_features = operating_target_features.drop(expanded_targets)
+        # Replace target geometries with target segments (if not NaN)
+        def replace_target_segments(row):
+            if pd.notnull(row.match_t_seg):
+                return row.match_t_seg
+            else:
+                return row.geometry
+        operating_target_features['geometry'] = operating_target_features.apply(replace_target_segments, axis=1)
+
+    return operating_target_features
+
+    # Function to find sets of target features with overlapping geometries in a particular column
+    def find_overlapping_sets(operating_target_features, index_column, geometry_column, 
+        geometry_test_function):
+        operating_target_features = operating_target_features.copy()
+        # Identify sets of records with the same index
+        index_sets = [d.index for _, d in operating_target_features.groupby(index_column) if len(d) > 1]
+        # Identify sets of records with the same target geometry
+        overlapping_sets = []
+        # Iterate through the sets
+        for index_set in index_sets:
+            index_set = operating_target_features.loc[index_set]
+            # Find sets of records with overlapping geometries based on test function 
+            for x in index_set.itertuples():
+                # Initiate list with current index
+                same_as_x = [x.Index]
+                # Exclude the current geometry
+                for y in index_set.drop([x.Index]).itertuples():
+                    # Test the geometries for overlap
+                    x_geom = getattr(x, geometry_column)
+                    y_geom = getattr(y, geometry_column)
+                    if geometry_test_function(x_geom, y_geom):
+                        same_as_x.append(y.Index)
+                # Convert to set
+                same_as_x = set(same_as_x)
+                if same_as_x not in overlapping_sets:
+                    overlapping_sets.append(same_as_x)
+        return overlapping_sets
+
+    # Exclude all matches except the closest one
+    if closest_match:
+        geometry_sets = operating_target_features = find_overlapping_sets(
+            operating_target_features,
+            'target_index',
+            'geometry',
+            lambda x, y: x.equals(y))
+
+        # Remove records that are part of geometry sets
+        records_with_duplicate_geometries = [x for y in geometry_sets for x in y]
+
+        closest_matches = []
+        # Among sets with identical target geometries, identify record with closest match
+        for geometry_set in geometry_sets:   
+            # Get records for indices
+            geometry_set = operating_target_features.loc[geometry_set]
+            # Identify minimum tc and ct distances and associated indices
+            h_tc_min_idx = geometry_set['match_h_tc'].astype(float).idxmin()
+            h_tc_min = geometry_set['match_h_tc'].astype(float).min()
+            h_ct_min_idx = geometry_set['match_h_ct'].astype(float).idxmin()
+            h_ct_min = geometry_set['match_h_ct'].astype(float).min()
+            # Identify overall closest match
+            min_idx = h_tc_min_idx if h_tc_min < h_ct_min else h_ct_min_idx
+            closest_matches.append(min_idx)
+            
+        # Gather closest records based on their indices
+        closest_records = gpd.GeoDataFrame()
+        for match in closest_matches:
+            closest_records = closest_records.append(operating_target_features.loc[[match]])
+
+        # Drop individual records in the geometry sets
+        operating_target_features = operating_target_features.drop([x for y in geometry_sets for x in y])
+
+        # Append just the closest records back on
+        operating_target_features = operating_target_features.append(closest_records, ignore_index=True)
+
+    return operating_target_features
+
+    if closest_target:
+        operating_target_features = constrain_to_closest(
+            operating_target_features, 'match_id', 'match_c_seg', geometry_test='intersects')
+
+    # Drop stats columns if not specifically requested
+    if (closest_match or closest_target) and not match_stats:
+        operating_target_features = operating_target_features.drop(
+            columns=['match_h_tc','match_t_prop','match_t_seg','match_h_ct','match_c_prop','match_c_seg'])
 
     # Gather values from fields of match features
     if match_fields and isinstance(match_fields, bool):
@@ -753,14 +906,30 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         match_fields.append(match_strings[1])
     # Copy over each column in match_fields
     for field in match_fields:
-        operating_target_features[field] = (
-            operating_target_features['match_id'].apply(
-                lambda x: [match_features.at[i, field] for i in x]))
-       
+        try:
+            operating_target_features[field] = (
+                operating_target_features['match_id'].apply(
+                    lambda x: [match_features.at[i, field] for i in listify(x)]))
+        except:
+            print(operating_target_features['match_id'])
+      
     # Join operating target features back onto all target features
     target_features = target_features.merge(
         operating_target_features.drop(columns=['geometry']), 
-        how='left', left_index=True, right_index=True, suffixes=field_suffixes)
+        how='outer', left_index=True, right_on='target_index', suffixes=field_suffixes)
+    
+    # Sort by original index
+    target_features = target_features.sort_values(['target_index'])
+
+    # Move original index to front if target features expanded (so there are multiple entries for some original indices)
+    if expand_target_features:
+        target_features = df_first_column(target_features, 'target_index')
+        target_features = target_features.reset_index(drop=True)
+    # Otherwise, set the index to the original index columns
+    else:
+        target_features = target_features.set_index('target_index')
+        # Delete the index name
+        del target_features.index.name
 
     # Convert empty lists to NaN
     target_features = target_features.applymap(
@@ -799,38 +968,6 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             match_string = match_string + field_suffixes[1]
         target_features['match_strings'] = target_features.apply(
             fuzzy_score, args=(target_string, match_string), axis=1)
-
-    # Expand targets matched with more than one candidate
-    if expand_target_features:
-        # Store original target feature IDs
-        target_features = target_features.reset_index().rename(columns={'index': 'orig_index'})
-
-        # Look for lists of match IDs in each row
-        expanded_targets = []
-        for i, target in enumerate(target_features.itertuples()):
-            if isinstance(target.match_id, list):
-                # Make duplicate rows for each match ID with respective attributes
-                for j, match in enumerate(target.match_id):
-                    new_row = target._asdict()
-                    new_row.pop('Index', None)
-                    for key, value in target._asdict().items():
-                        if isinstance(value, list):
-                            new_row[key] = value[j]
-                    # Append new row to end of dataframe
-                    target_features = target_features.append(new_row, ignore_index=True)
-                # Mark original row for deletion
-                expanded_targets.append(i)
-        # Delete expanded targets
-        target_features = target_features.drop(expanded_targets)
-        # Replace target geometries with target segments (if not NaN)
-        def replace_target_segments(row):
-            if pd.notnull(row.match_t_seg):
-                return row.match_t_seg
-            else:
-                return row.geometry
-        target_features['geometry'] = target_features.apply(replace_target_segments, axis=1)
-        target_features = target_features.drop(columns=['match_t_prop','match_t_seg'])
-        target_features = target_features.sort_values(['orig_index'])
 
     # Move the geometry column to the end
     target_features = df_last_column(target_features, 'geometry')
