@@ -1049,7 +1049,7 @@ def plot_shapes(shapes, ax=None, axis_off=True, size=8, extent=None,
     """
 
     # Make sure shapes are in a list
-    shapes = listify(shapes)
+    shapes = listify(shapes.copy())
 
     # Turn all individual shapes and lists of shapes into geodataframes
     attribute_dicts = [None] * len(shapes)
@@ -1253,7 +1253,7 @@ def closest_point_along_line(point, line, return_linear_reference=False):
         return point, lin_ref
     else:
         return point
-    
+
 
 def vertices_to_points(shape):
     """Return vertices of a shape as a list of points.

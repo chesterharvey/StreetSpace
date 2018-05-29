@@ -405,3 +405,26 @@ def nan_any(input, true_value=True, false_value=False):
         return true_value
     else:
         return false_value
+
+
+def merge_intervals(intervals):
+    """Merge overlapping intervals defined by a list of tuples
+    
+    From https://codereview.stackexchange.com/questions/69242/merging-overlapping-intervals
+    """
+    sorted_by_lower_bound = sorted(intervals, key=lambda x: x[0])
+    merged = []
+    for higher in sorted_by_lower_bound:
+        if not merged:
+            merged.append(higher)
+        else:
+            lower = merged[-1]
+            # test for intersection between lower and higher:
+            # we know via sorting that lower[0] <= higher[0]
+            if higher[0] <= lower[1]:
+                upper_bound = max(lower[1], higher[1])
+                # replace by merged interval
+                merged[-1] = (lower[0], upper_bound)  
+            else:
+                merged.append(higher)
+    return merged
