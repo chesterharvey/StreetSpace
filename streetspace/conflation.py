@@ -549,7 +549,6 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     
     # Initiate lists to store match results
     match_indices = []
-    # match_types = []
     h_tms_matches = []
     t_props_matches = []
     t_segs_matches = []
@@ -717,21 +716,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                         h_mts.append(h_mt)
                         m_props.append(m_prop)
                         m_segs.append(m_seg)
-                        m_linrefs.append(m_linref)
-
-            
-            ####### DOUBLE CHECK THAT THESE ARE ASSIGNED PROPERLY #######
-            # Determine match type
-            # if len(t_props) == 0:
-            #     match_types.append('1:0')
-            # elif (min(t_props) == 1) and (min(m_props) == 1):
-            #     match_types.append('1:1')
-            # elif (min(t_props) == 1):
-            #     match_types.append('m:1')
-            # elif (min(m_props) == 1):
-            #     match_types.append('1:n')
-            # else:
-            #     match_types.append('m:n')    
+                        m_linrefs.append(m_linref) 
 
         # Record match stats
         match_indices.append(match_ids)
@@ -760,9 +745,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 print('{}% ({} segments) complete after {:04.2f} minutes'.format(percent_complete, counter, minutes))
             counter += 1
     
-    
     print(len(operating_target_features))
-    # print(len(match_types))
     print(len(match_indices))
     print(len(h_tms_matches))
     print(len(t_props_matches))
@@ -772,11 +755,9 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     print(len(m_props_matches))
     print(len(m_segs_matches))
     print(len(m_linrefs_matches))
-    
+
 
     # Merge joined data with target features
-    # operating_target_features['match_type'] = pd.Series(
-    #     match_types, index=operating_target_features.index)
     operating_target_features['match_index'] = pd.Series(
         match_indices, index=operating_target_features.index)
     if match_stats or closest_match or closest_target or expand_target_features:
@@ -977,7 +958,6 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                     operating_target_features.at[idx, 'm_linref'] = np.nan
                     operating_target_features.at[idx, 'h_tm'] = np.nan
                     operating_target_features.at[idx, 'h_mt'] = np.nan
-                    # operating_target_features.at[idx, 'match_type'] = np.nan
                     operating_target_features.at[idx, 'match_index'] = np.nan
 
     # Drop stats columns if not specifically requested
