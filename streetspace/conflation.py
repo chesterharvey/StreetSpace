@@ -868,7 +868,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 t_seg_endpoints = [x for t_seg in lin_ref_set['t_seg'] for x in endpoints(t_seg)]
                 t_seg_endpoint_lin_refs = [range_match_geom.project(x) for x in t_seg_endpoints]
                 range_match_segments = split_line_at_dists(range_match_geom, t_seg_endpoint_lin_refs)
-                
+               
                 # For each segment, see which target feature is closest
                 closest_targets = [
                     nearest_neighbor(segment, GeoDataFrame(geometry=lin_ref_set['t_seg'])).index[0] 
@@ -890,17 +890,22 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                         # Identify the longer of these                    
                         longest_adjacent_idx = adjacent_idxs[np.argmax(
                             [range_match_segments[x].length for x in adjacent_idxs])]
-                        # Merge the shortest segment with its longest neighbor   
+                        # Merge the shortest segment with its longest neighbor 
                         merged_segments = sh.ops.linemerge(
                             [range_match_segments[shortest_idx], 
                              range_match_segments[longest_adjacent_idx]])
-                        # Replace neighbor with mereged segment
-                        range_match_segments[longest_adjacent_idx] = merged_segments
-                        # Delete shortest segment
-                        del range_match_segments[shortest_idx]
-                        # Delete shortest segment target ID
+                        # Replace neighbor with mereged segment, if it is a LineString
+                        if isinstance(merged_segments, LineString):
+                            range_match_segments[longest_adjacent_idx] = merged_segments
+                        # Otherwise (e.g., if GeometryCollection), delete neighboring segment
+                        else:
+                            print('ignoring non-linestring: {}'.format(str(merged_segments)))
+                            del range_match_segments[longest_adjacent_idx]
+                            del closest_targets[longest_adjacent_idx]
+                        # Delete shortest segment and target ID
                         # (short segment effectively inherets target from longer segment)
-                        del closest_targets[shortest_idx]
+                        del range_match_segments[shortest_idx]
+                        del closest_targets[shortest_idx]                         
                         # Recalculate minimum segment length
                         min_length = min([x.length for x in range_match_segments])
                         # Avoid getting caught in infinite loop if only one segment
@@ -939,7 +944,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                                           if x not in lin_ref_set_idxs]
                 for lin_ref_set_idx in other_lin_ref_set_idxs:
                     lin_ref_set.at[lin_ref_set_idx, 't_prop'] = np.nan
-                    lin_ref_set.at[lin_ref_set_idx, 't_seg'] = np.nan
+                    # lin_ref_set.at[lin_ref_set_idx, 't_seg'] = np.nan ########### Maybe don't get rid of the t_seg?
                     lin_ref_set.at[lin_ref_set_idx, 't_linref'] = np.nan
                     lin_ref_set.at[lin_ref_set_idx, 'm_prop'] = np.nan
                     lin_ref_set.at[lin_ref_set_idx, 'm_seg'] = np.nan
@@ -954,45 +959,6 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 # Append rows from lin_ref_set back onto operating_target_features
                 operating_target_features = operating_target_features.append(
                     lin_ref_set, ignore_index=True)
-
-                # # Revise match info in main table
-                # for lin_ref_set_idx, match_prop, match_segment, match_lin_ref in zip(
-                #     lin_ref_set_idxs, match_props, match_segments, match_lin_refs):
-                    
-                #     def lookup_operating_idx(lin_ref_set_idx):
-                #         """
-                #         Get index from operating_target_features that is associated with a
-                #         particular feature in the linear reference set
-                #         """
-
-
-                #         target_index = lin_ref_set.iloc[lin_ref_set_idx]['target_index']
-                #         target_lin_ref = lin_ref_set.iloc[lin_ref_set_idx]['t_linref']
-                #         return operating_target_features.index[
-                #             (operating_target_features['target_index'] == target_index) &
-                #             (operating_target_features['t_linref'] == target_lin_ref)][0]
-                    
-                #     # Set match data for that row
-                #     idx = lookup_operating_idx(lin_ref_set_idx)
-                #     operating_target_features.at[idx, 'm_prop'] = match_prop
-                #     operating_target_features.at[idx, 'm_seg'] = match_segment
-                #     operating_target_features.at[idx, 'm_linref'] = match_lin_ref
-                #     operating_target_features.at[idx, 'h_tm'] = directed_hausdorff(
-                #         operating_target_features.at[idx, 't_seg'], match_segment)
-                #     operating_target_features.at[idx, 'h_mt'] = directed_hausdorff(
-                #         match_segment, operating_target_features.at[idx, 't_seg'])
-
-                
-                
-                # # Remove match data for other targets
-                # for lin_ref_set_idx in other_lin_ref_set_idxs:
-                #     idx = lookup_operating_idx(lin_ref_set_idx)
-                #     operating_target_features.at[idx, 'm_prop'] = np.nan
-                #     operating_target_features.at[idx, 'm_seg'] = np.nan
-                #     operating_target_features.at[idx, 'm_linref'] = np.nan
-                #     operating_target_features.at[idx, 'h_tm'] = np.nan
-                #     operating_target_features.at[idx, 'h_mt'] = np.nan
-                #     operating_target_features.at[idx, 'match_index'] = np.nan
 
     # Drop stats columns if not specifically requested
     if (closest_match or closest_target) and not match_stats:
@@ -1009,12 +975,21 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         match_fields = []
     if match_strings and (match_strings[1] not in match_fields):
         match_fields.append(match_strings[1])
+
+    # Convert empty lists to np.nan
+    operating_target_features['match_index'] = operating_target_features['match_index'].apply(
+        lambda x: np.nan if (isinstance(x, list) and len(x) == 0) else x)
+
     # Copy over each column in match_fields
     for field in match_fields:
         try:
             operating_target_features[field] = (
                 operating_target_features['match_index'].apply(
-                    lambda x: [match_features.at[i, field] for i in listify(x)]))
+                    lambda x: [
+                        match_features.at[i, field] 
+                        if pd.notnull(x)  
+                        else np.nan
+                        for i in listify(x)]))
         except:
             print(operating_target_features['match_index'])
       
