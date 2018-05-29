@@ -1363,3 +1363,14 @@ def singlepart(gdf):
             # Drop original row
             gdf.drop(current_index, inplace=True)
     return gdf
+
+
+def nearest_neighbor(shape, gdf):
+    """Identify the nearest neighbor to a shape among features in a geodataframe
+    
+    """
+    distances = []
+    for feature in gdf.itertuples():
+        distances.append(shape.distance(feature.geometry))
+    return gdf.iloc[[np.argmin(distances)]]
+
