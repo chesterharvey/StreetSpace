@@ -892,7 +892,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 match_id = match_id_set.iloc[0]['match_index']
 
                 # Get raw geometry for match feature
-                match_geom = match_features.iloc[match_id]['geometry']
+                match_geom = match_features.loc[match_id]['geometry']
                 
                 # Find overlapping linear reference ranges among the original matches
                 lin_ref_ranges = merge_intervals(match_id_set['m_linref'].tolist())
@@ -901,9 +901,6 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 lin_ref_sets = [match_id_set[match_id_set['m_linref'].apply(
                                     lambda x: True if (x[0] >= lower and x[1] <= upper) else False)]
                                 for lower, upper in lin_ref_ranges]
-
-                # if match_id == 25:
-                #     return lin_ref_sets
 
                 # Analyze each set of targets with overlapping matches           
                 for lin_ref_set, lin_ref_range in zip(lin_ref_sets, lin_ref_ranges):
