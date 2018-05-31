@@ -358,7 +358,7 @@ def match_lines_by_midpoint(target_features, match_features, distance_tolerance,
     return target_features
 
 
-def find_parallel_segment(a, b, distance_tolerance):
+def find_parallel_segment(a, b, max_distance=None, snap_distance=None):
     """Identify a segment of line b that runs parallel to line a.
 
     Parameters
@@ -369,49 +369,58 @@ def find_parallel_segment(a, b, distance_tolerance):
     b : :class:`shapely.geometry.LineString`
         LineString from which to find a segment this is parallel to ``a``.
 
-    distance_tolerance : :obj:`float`
+    max_distance : :obj:`float`
         Maximum distance that a potential segment of ``b`` may be from ``a``.
+
+    snap_distance : :obj:`float`
+        Distance within which segment end will be snapped to endpoint of ``b``
+        if endpoint of ``b`` falls outside of segment
 
     Returns
     -------
     :class:`shapely.geometry.LineString`
         Segment of ``b`` running parallel to ``a``.
     """
-    def endpoint_near_endpoint(a_endpoint, b_endpoints):
-        for b_endpoint in b_endpoints:
-            if a_endpoint.distance(b_endpoint) <= distance_tolerance:
-                return True
-            
+
     def almost_equals_any_endpoint(closest_point, b_endpoints):
         for b_endpoint in b_endpoints:
             if closest_point.almost_equals(b_endpoint):
                 return True
     
+    # If no distance tolerance set to maximum of input shape lengths
+    # (basically, a relatively large number)
+    if not max_distance:
+        max_distance = max([a.length, b.length])
+
     # Get endpoints of "a" and "b"
     a_endpoints = endpoints(a)
     b_endpoints = endpoints(b)
+    
     # Identify points along "b" that are closest to endpoints of "a"
     split_points = []
     for a_endpoint in a_endpoints:  
-        if not endpoint_near_endpoint(a_endpoint, b_endpoints):
-            closest_point = closest_point_along_line(a_endpoint, b)
-            # Check whether closest point is within distance tolerance of "a" endpoint
-            if closest_point.distance(a_endpoint) < distance_tolerance:
-                # Check whether closest point on "b" is the same as an endpoint of "b"
-                if not almost_equals_any_endpoint(closest_point, b_endpoints):
-                    # If not, save as split point
-                    split_points.append(closest_point)
+        closest_point, lin_ref = closest_point_along_line(a_endpoint, b, return_linear_reference=True)
+        # Check whether closest point is within distance tolerance of "a" endpoint
+        if closest_point.distance(a_endpoint) < max_distance:
+            # Check whether closest point on "b" is the same as an endpoint of "b"
+            if not almost_equals_any_endpoint(closest_point, b_endpoints):
+                if snap_distance:
+                    # Only add split point if point is far enough from the end of "b"
+                    if (lin_ref > snap_distance) and (lin_ref < (b.length-snap_distance)):
+                        split_points.append(closest_point)
+                else:
+                    split_points.append(closest_point)    
     # Assume there is no segment of "b" parallel to "a"
     adjacent_seg = None
     # Split "b" into segments at these points
     if len(split_points) > 0:
-        b_segments = split_line_at_points(b, split_points)
-        # Identify which (if any) segment runs parallel to "a" based on hausdorff dist
-        along = [segment for segment in b_segments 
-                 if directed_hausdorff(segment, a) < distance_tolerance]
-        if len(along) > 0:
-            adjacent_seg = along[0]
-    return adjacent_seg
+        b_segments = split_line_at_points(b, split_points)    
+        # Get closest segment based on Hausdorff Distance
+        if len(b_segments) > 0:
+            distances = [directed_hausdorff(a, b_segment) for b_segment in b_segments]
+            parallel_segment = b_segments[np.argmin(distances)]
+            if parallel_segment.length > 0:
+                return parallel_segment
 
 def segment_linear_reference(line, segment):
     """Calculate linear references of segment endpoints relative to a parent LineString
@@ -421,8 +430,8 @@ def segment_linear_reference(line, segment):
 
 
 def match_lines_by_hausdorff(target_features, match_features, distance_tolerance, 
-    azimuth_tolerance=None, match_features_sindex=None, match_fields=False, match_stats=False, 
-    field_suffixes=('', '_match'), match_strings=None, constrain_target_features=False, 
+    azimuth_tolerance=None, length_tolerance=0, match_features_sindex=None, match_fields=False, 
+    match_stats=False, field_suffixes=('', '_match'), match_strings=None, constrain_target_features=False, 
     target_features_sindex=None, match_vectors=False, expand_target_features=False, 
     closest_match=False, closest_target=False, verbose=False):
     """Conflate attributes between line features based on Hausdorff distance.
@@ -454,6 +463,13 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             (the longest axis of the feature's minimum bounding rectangle).
         If feature segments are matched (e.g., 1:n, m:1, or m:n),
             azimuths are calculated for each segment.   
+
+    length_tolerance : :obj:`float`, optional, default = 0
+        Proportion of target feature length required for potential match features.
+        For example, 0.25 specifies that a match candidates must be at least 25% as long as
+            target features to be viable matches.
+        Must be between 0 and 1. If target and match features are split, length proportions
+            are calculated between split segments, not original features.
 
     match_features_sindex : :class:`rtree.index.Index`, optional, default = ``None``
         Spatial index for ``match_features``.
@@ -549,6 +565,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     
     # Initiate lists to store match results
     match_indices = []
+    match_types = []
     h_tms_matches = []
     t_props_matches = []
     t_segs_matches = []
@@ -564,7 +581,8 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     for i, target in enumerate(operating_target_features.geometry):
 
         # Initiate lists to store matches
-        match_ids = []
+        m_ids = []
+        m_types = []
         h_tms = []
         t_props = []
         t_segs = []
@@ -610,6 +628,7 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 if candidate.geometry.length > 0:
                 
                     # Initialize default match values
+                    m_type = None
                     h_tm = None
                     t_prop = None
                     t_seg = None
@@ -619,13 +638,16 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                     m_seg = None
                     m_linref = None
                     
-                    
                     # 1:1
                     if (
                         (candidate.h_tm <= distance_tolerance) and 
                         (candidate.h_mt <= distance_tolerance) and
                         # Check that azimuth is acceptable
-                        azimuth_match(target, candidate.geometry, azimuth_tolerance)):
+                        azimuth_match(target, candidate.geometry, azimuth_tolerance) and
+                        # Check relative length
+                        (abs(candidate.geometry.length - target.length) < 
+                            (1- length_tolerance) * target.length)):
+
                         # Whole target matches candidate
                         h_tm = candidate.h_tm
                         t_prop = 1
@@ -636,18 +658,23 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                         m_prop = 1
                         m_seg = candidate.geometry
                         m_linref = (0, candidate.geometry.length)
+                        m_type = '1:1'
                         
                     # m:1
                     elif (
                         (candidate.h_tm <= distance_tolerance) and 
                         (candidate.h_mt > distance_tolerance)):
+
                         # Find the candidate segment matching the target
-                        candidate_seg = find_parallel_segment(
-                            target, candidate.geometry, distance_tolerance)
+                        candidate_seg = find_parallel_segment(target, candidate.geometry)
 
                         if (candidate_seg and 
                             candidate_seg.length > 0 and
-                            azimuth_match(target, candidate_seg, azimuth_tolerance)):
+                            azimuth_match(target, candidate_seg, azimuth_tolerance) and
+                            # Check relative length
+                            (abs(candidate_seg.length - target.length) < 
+                                (1- length_tolerance) * target.length)):
+
                             # Whole target matches candidate
                             h_tm = directed_hausdorff(target, candidate_seg)
                             t_prop = 1
@@ -658,17 +685,23 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                             m_prop = candidate_seg.length / candidate.geometry.length
                             m_seg = candidate_seg
                             m_linref = segment_linear_reference(candidate.geometry, candidate_seg)
+                            m_type = 'm:1'
 
                     # 1:n
                     elif (
                         (candidate.h_tm > distance_tolerance) and 
                         (candidate.h_mt <= distance_tolerance)):
+
                         # Find the target segment matching the candidate
                         target_seg = find_parallel_segment(
-                            candidate.geometry, target, distance_tolerance)
+                            candidate.geometry, target, snap_distance=distance_tolerance)
                         if (target_seg and 
                             target_seg.length > 0 and
-                            azimuth_match(target_seg, candidate.geometry, azimuth_tolerance)):
+                            azimuth_match(target_seg, candidate.geometry, azimuth_tolerance) and
+                            # Check relative length
+                            (abs(candidate.geometry.length - target_seg.length) < 
+                                (1- length_tolerance) * target_seg.length)):
+
                             # Calculate proportion of target included in segment
                             h_tm = directed_hausdorff(target_seg, candidate.geometry)
                             t_prop = target_seg.length / target.length
@@ -679,16 +712,18 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                             m_prop = 1
                             m_seg = candidate.geometry
                             m_linref = (0, candidate.geometry.length)
+                            m_type = '1:n'
                     
                     # potential m:n
                     elif (
                         (candidate.h_tm > distance_tolerance) and 
                         (candidate.h_mt > distance_tolerance)):
+
                         # See if parallel segments can be identified
                         target_seg = find_parallel_segment(
-                            candidate.geometry, target, distance_tolerance)
+                            candidate.geometry, target, snap_distance=distance_tolerance)
                         candidate_seg = find_parallel_segment(
-                            target, candidate.geometry, distance_tolerance)
+                            target, candidate.geometry)
                         # Measure hausdorff distance (non-directed) between parallel segments
                         if target_seg and candidate_seg:
                             h_tm_seg = directed_hausdorff(target_seg, candidate_seg)
@@ -697,7 +732,11 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                                 (h_mt_seg <= distance_tolerance) and
                                 target_seg.length > 0 and
                                 candidate_seg.length > 0 and
-                                azimuth_match(target_seg, candidate_seg, azimuth_tolerance)):
+                                azimuth_match(target_seg, candidate_seg, azimuth_tolerance) and
+                                # Check relative length
+                                (abs(candidate_seg.length - target_seg.length) < 
+                                    (1- length_tolerance) * target_seg.length)):
+
                                 h_tm = h_tm_seg
                                 t_prop = target_seg.length / target.length
                                 t_seg = target_seg
@@ -706,9 +745,11 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                                 m_prop = candidate_seg.length / candidate.geometry.length
                                 m_seg = candidate_seg
                                 m_linref = segment_linear_reference(candidate.geometry, candidate_seg)
+                                m_type = 'm:n'
                                              
                     if t_prop is not None:
-                        match_ids.append(candidate.index)
+                        m_ids.append(candidate.index)
+                        m_types.append(m_type)
                         h_tms.append(h_tm)
                         t_props.append(t_prop)
                         t_segs.append(t_seg)
@@ -716,10 +757,11 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                         h_mts.append(h_mt)
                         m_props.append(m_prop)
                         m_segs.append(m_seg)
-                        m_linrefs.append(m_linref) 
+                        m_linrefs.append(m_linref)
 
         # Record match stats
-        match_indices.append(match_ids)
+        match_indices.append(m_ids)
+        match_types.append(m_types)
         h_tms_matches.append(h_tms)
         t_props_matches.append(t_props)
         t_segs_matches.append(t_segs)
@@ -744,11 +786,13 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 minutes = (time()-start) / 60
                 print('{}% ({} segments) complete after {:04.2f} minutes'.format(percent_complete, counter, minutes))
             counter += 1
-    
+
     # Merge joined data with target features
     operating_target_features['match_index'] = pd.Series(
         match_indices, index=operating_target_features.index)
     if match_stats or closest_match or closest_target or expand_target_features:
+        operating_target_features['match_type'] = pd.Series(
+            match_types, index=operating_target_features.index)
         operating_target_features['h_tm'] = pd.Series(
             h_tms_matches, index=operating_target_features.index)
         operating_target_features['t_prop'] = pd.Series(
@@ -770,29 +814,30 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             match_vectors, index=operating_target_features.index)
 
     # Store original target feature IDs
-    operating_target_features = operating_target_features.reset_index().rename(columns={'index': 'target_index'})
+    operating_target_features = operating_target_features.reset_index().rename(columns={'index': 'target_index'})    
 
-    # Expand targets matched with more than one candidate
-    # This is required if 'closest_match' or 'closest_target' are specified
-    if expand_target_features or closest_match or closest_target:
+    # Expand targets with more than one match
+    # Look for lists of match IDs in each row
+    expanded_targets = []
+    for i, target in enumerate(operating_target_features.itertuples()):
+        if isinstance(target.match_index, list):
+            # Make duplicate rows for each match ID with respective attributes
+            for j, match in enumerate(target.match_index):
+                new_row = target._asdict()
+                new_row.pop('Index', None)
+                for key, value in target._asdict().items():
+                    if isinstance(value, list):
+                        new_row[key] = value[j]
+                # Append new row to end of dataframe
+                operating_target_features = operating_target_features.append(new_row, ignore_index=True)
+            # Mark original row for deletion
+            expanded_targets.append(i)
+    # Delete expanded targets
+    operating_target_features = operating_target_features.drop(expanded_targets)
+    
+    # Only analyze matches if there are any
+    if len(operating_target_features) > 0:
 
-        # Look for lists of match IDs in each row
-        expanded_targets = []
-        for i, target in enumerate(operating_target_features.itertuples()):
-            if isinstance(target.match_index, list):
-                # Make duplicate rows for each match ID with respective attributes
-                for j, match in enumerate(target.match_index):
-                    new_row = target._asdict()
-                    new_row.pop('Index', None)
-                    for key, value in target._asdict().items():
-                        if isinstance(value, list):
-                            new_row[key] = value[j]
-                    # Append new row to end of dataframe
-                    operating_target_features = operating_target_features.append(new_row, ignore_index=True)
-                # Mark original row for deletion
-                expanded_targets.append(i)
-        # Delete expanded targets
-        operating_target_features = operating_target_features.drop(expanded_targets)
         # Replace target geometries with target segments (if not NaN)
         def replace_target_segs(row):
             if pd.notnull(row.t_seg):
@@ -801,165 +846,137 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                 return row.geometry
         operating_target_features['geometry'] = operating_target_features.apply(replace_target_segs, axis=1)
 
-    # For each unique target geometry, delete all matches except the closest one
-    # (expanded targets are deleted if they don't have the closest match)
-    # Required if 'closest_target'
-    if closest_match or closest_target:
+        # For each unique target geometry, delete all matches except the closest one
+        # (expanded targets are deleted if they don't have the closest match)
+        # Required if 'closest_target'
+        if closest_match or closest_target:
 
-        # Identify sets of records with identical targets
-        equivalent_target_sets = [d for _, d in operating_target_features.groupby(
-            ['target_index','t_linref']) if len(d) > 1]
+            # Identify sets of records with identical targets
+            equivalent_target_sets = [d for _, d in operating_target_features.groupby(
+                ['target_index','t_linref']) if len(d) > 1]
 
-        # Identify which of these records has the closest match
-        equivalent_record_ids = []
-        closest_records = gpd.GeoDataFrame(crs=operating_target_features.crs)
-        for equivalent_target_set in equivalent_target_sets:
-            # Keep track of IDs for equivalent records
-            equivalent_record_ids.extend(equivalent_target_set.index.tolist())
-            # Identify minimum tc and ct distances and associated indices
-            h_tm_min_idx = equivalent_target_set['h_tm'].astype(float).idxmin()
-            h_tm_min = equivalent_target_set['h_tm'].astype(float).min()
-            h_mt_min_idx = equivalent_target_set['h_mt'].astype(float).idxmin()
-            h_mt_min = equivalent_target_set['h_mt'].astype(float).min()
-            # Identify overall closest match
-            min_idx = h_tm_min_idx if h_tm_min < h_mt_min else h_mt_min_idx
-            closest_records = closest_records.append(
-                operating_target_features.loc[[min_idx]], ignore_index=True)
-        # Drop equivalent records
-        operating_target_features = operating_target_features.drop(
-            equivalent_record_ids)
-        # Add back those with the closest match
-        operating_target_features = operating_target_features.append(
-            closest_records, ignore_index=True)
+            # Identify which of these records has the closest match
+            equivalent_record_ids = []
+            closest_records = gpd.GeoDataFrame(crs=operating_target_features.crs)
+            for equivalent_target_set in equivalent_target_sets:
+                # Keep track of IDs for equivalent records
+                equivalent_record_ids.extend(equivalent_target_set.index.tolist())
+                # Identify minimum tc and ct distances and associated indices
+                h_tm_min_idx = equivalent_target_set['h_tm'].astype(float).idxmin()
+                h_tm_min = equivalent_target_set['h_tm'].astype(float).min()
+                h_mt_min_idx = equivalent_target_set['h_mt'].astype(float).idxmin()
+                h_mt_min = equivalent_target_set['h_mt'].astype(float).min()
+                # Identify overall closest match
+                min_idx = h_tm_min_idx if h_tm_min < h_mt_min else h_mt_min_idx
+                closest_records = closest_records.append(
+                    operating_target_features.loc[[min_idx]], ignore_index=True)
+            # Drop equivalent records
+            operating_target_features = operating_target_features.drop(
+                equivalent_record_ids)
+            # Add back those with the closest match
+            operating_target_features = operating_target_features.append(
+                closest_records, ignore_index=True)
+        
+        # Ensure that each match feature is only matched to one, closest target feature
+        # (No targets are deleted, but matches are removed if a given target isn't closest)
+        if closest_target:
 
-    
-    # Ensure that each match feature is only matched to one, closest target feature
-    # (No targets are deleted, but matches are removed if a given target isn't closest)
-    if closest_target:
-        # Identify sets of records with the same match id
-        match_id_sets = [d for _, d in operating_target_features.groupby(
-            'match_index') if len(d) > 1]
+            # Identify sets of records with the same match id
+            match_id_sets = [d for _, d in operating_target_features.groupby(
+                'match_index') if len(d) > 1]
 
-        # Within these sets, identify sets with overlapping linear references
-        for match_id_set in match_id_sets:
-            
-            # Get ID for match feature
-            match_id = match_id_set.iloc[0]['match_index']
-
-            # Get raw geometry for match feature
-            match_geom = match_features.iloc[match_id]['geometry']
-            
-            # Find overlapping linear reference ranges among the original matches
-            lin_ref_ranges = merge_intervals(match_id_set['m_linref'].tolist())
-            
-            # Identify sets of records within each range
-            lin_ref_sets = [match_id_set[match_id_set['m_linref'].apply(
-                                lambda x: True if (x[0] >= lower and x[1] <= upper) else False)]
-                            for lower, upper in lin_ref_ranges]
-
-            # Analyze each set of targets that has otherlapping matches
-            for lin_ref_set, lin_ref_range in zip(lin_ref_sets, lin_ref_ranges):
+            # Within these sets, identify sets with overlapping linear references
+            for match_id_set in match_id_sets:
                 
-                # Get the portion of the raw match feature within the linear reference range
-                original_match_geom = match_features.iloc[match_id]['geometry']
-                _, range_match_geom, _ = split_line_at_dists(match_geom, lin_ref_range)
+                # Get ID for match feature
+                match_id = match_id_set.iloc[0]['match_index']
+
+                # Get raw geometry for match feature
+                match_geom = match_features.iloc[match_id]['geometry']
                 
-                # Break into segments at each target segment endpoint
-                t_seg_endpoints = [x for t_seg in lin_ref_set['t_seg'] for x in endpoints(t_seg)]
-                t_seg_endpoint_lin_refs = [range_match_geom.project(x) for x in t_seg_endpoints]
-                range_match_segments = split_line_at_dists(range_match_geom, t_seg_endpoint_lin_refs)
-               
-                # For each segment, see which target feature is closest
-                closest_targets = [
-                    nearest_neighbor(segment, GeoDataFrame(geometry=lin_ref_set['t_seg'])).index[0] 
-                    for segment in range_match_segments]
+                # Find overlapping linear reference ranges among the original matches
+                lin_ref_ranges = merge_intervals(match_id_set['m_linref'].tolist())
                 
-                # Merge segments shorter than the tolerance distance to their longest neighboring segment
-                min_length = min([x.length for x in range_match_segments])
-                while min_length < distance_tolerance:
-                    # Identify the shortest segment
-                    shortest_idx = np.argmin([x.length for x in range_match_segments])
-                    # Identify the segments on either side
-                    adjacent_idxs = [] 
-                    if shortest_idx > 0:
-                        adjacent_idxs.append(shortest_idx - 1)
-                    if shortest_idx < (len(range_match_segments) - 1):
-                        adjacent_idxs.append(shortest_idx + 1)
-                    # Only move forward if there are any segments to merge
-                    if len(adjacent_idxs) > 0:
-                        # Identify the longer of these                    
-                        longest_adjacent_idx = adjacent_idxs[np.argmax(
-                            [range_match_segments[x].length for x in adjacent_idxs])]
-                        # Merge the shortest segment with its longest neighbor 
-                        merged_segments = sh.ops.linemerge(
-                            [range_match_segments[shortest_idx], 
-                             range_match_segments[longest_adjacent_idx]])
-                        # Replace neighbor with mereged segment, if it is a LineString
-                        if isinstance(merged_segments, LineString):
-                            range_match_segments[longest_adjacent_idx] = merged_segments
-                        # Otherwise (e.g., if GeometryCollection), delete neighboring segment
-                        else:
-                            print('ignoring non-linestring: {}'.format(str(merged_segments)))
-                            del range_match_segments[longest_adjacent_idx]
-                            del closest_targets[longest_adjacent_idx]
-                        # Delete shortest segment and target ID
-                        # (short segment effectively inherets target from longer segment)
-                        del range_match_segments[shortest_idx]
-                        del closest_targets[shortest_idx]                         
-                        # Recalculate minimum segment length
-                        min_length = min([x.length for x in range_match_segments])
-                        # Avoid getting caught in infinite loop if only one segment
-                        # and still shorter than distance tolerance
-                        if len(range_match_segments) == 1:
-                            break
-                    else:
-                        break
+                # Identify sets of records within each range
+                lin_ref_sets = [match_id_set[match_id_set['m_linref'].apply(
+                                    lambda x: True if (x[0] >= lower and x[1] <= upper) else False)]
+                                for lower, upper in lin_ref_ranges]
 
-                # Group adjacent segments with the same target
-                groups = [list(group) for _, group in itertools.groupby(
-                    zip(closest_targets, range_match_segments), key=lambda x: x[0])]
-                lin_ref_set_idxs = [group[0][0] for group in groups]
-                match_segments = [[x[1] for x in group] for group in groups]
-                match_segments = [sh.ops.linemerge(x) for x in match_segments]
-                
-                # Calculate the match prop and lin_ref bounds for the grouped match segments
-                match_props = [x.length/match_geom.length for x in match_segments]
-                match_lin_refs = [tuple([match_geom.project(point) for point in endpoints(segment)]) 
-                                  for segment in match_segments]
+                # if match_id == 25:
+                #     return lin_ref_sets
 
-                # Update match info for the chosen target
-                for lin_ref_set_idx, match_prop, match_segment, match_lin_ref in zip(
-                    lin_ref_set_idxs, match_props, match_segments, match_lin_refs):
+                # Analyze each set of targets with overlapping matches           
+                for lin_ref_set, lin_ref_range in zip(lin_ref_sets, lin_ref_ranges):
+                    
+                    # Get the portion of the raw match feature within the linear reference range
+                    original_match_geom = match_features.loc[match_id]['geometry']
+                    _, range_match_geom, _ = split_line_at_dists(match_geom, lin_ref_range)
+                    
+                    # Split the linear reference feature into segments parallel to match features
+                    t_seg_endpoints = [x for t_seg in lin_ref_set['t_seg'] for x in endpoints(t_seg)]
+                    t_seg_endpoint_lin_refs = [range_match_geom.project(x) for x in t_seg_endpoints]
+                    range_match_segments = split_line_at_dists(range_match_geom, t_seg_endpoint_lin_refs)
 
-                    lin_ref_set.at[lin_ref_set_idx, 'm_prop'] = match_prop
-                    lin_ref_set.at[lin_ref_set_idx, 'm_seg'] = match_segment
-                    lin_ref_set.at[lin_ref_set_idx, 'm_linref'] = match_lin_ref
-                    lin_ref_set.at[lin_ref_set_idx, 'h_tm'] = directed_hausdorff(
-                        lin_ref_set.at[lin_ref_set_idx, 't_seg'], match_segment)
-                    lin_ref_set.at[lin_ref_set_idx, 'h_mt'] = directed_hausdorff(
-                        match_segment, lin_ref_set.at[lin_ref_set_idx, 't_seg'])
+                    # For each segment, see which target feature is closest based on hausdorff distance
+                    closest_targets = [
+                        nearest_neighbor(
+                            segment, 
+                            GeoDataFrame(geometry=lin_ref_set['t_seg']),
+                            hausdorff_distance=True
+                            ).index[0]
+                        for segment in range_match_segments]
 
-                # Remove match info for other targets in set
-                other_lin_ref_set_idxs = [x for x in lin_ref_set.index
-                                          if x not in lin_ref_set_idxs]
-                for lin_ref_set_idx in other_lin_ref_set_idxs:
-                    lin_ref_set.at[lin_ref_set_idx, 't_prop'] = np.nan
-                    # lin_ref_set.at[lin_ref_set_idx, 't_seg'] = np.nan ########### Maybe don't get rid of the t_seg?
-                    lin_ref_set.at[lin_ref_set_idx, 't_linref'] = np.nan
-                    lin_ref_set.at[lin_ref_set_idx, 'm_prop'] = np.nan
-                    lin_ref_set.at[lin_ref_set_idx, 'm_seg'] = np.nan
-                    lin_ref_set.at[lin_ref_set_idx, 'm_linref'] = np.nan
-                    lin_ref_set.at[lin_ref_set_idx, 'h_tm'] = np.nan
-                    lin_ref_set.at[lin_ref_set_idx, 'h_mt'] = np.nan
-                    lin_ref_set.at[lin_ref_set_idx, 'match_index'] = np.nan
+                    # Group adjacent segments with the same target
+                    groups = [list(group) for _, group in itertools.groupby(
+                        zip(closest_targets, range_match_segments), key=lambda x: x[0])]
+                    closest_targets = [group[0][0] for group in groups]
+                    match_segments = [[x[1] for x in group] for group in groups]
+                    match_segments = [sh.ops.linemerge(x) for x in match_segments]
 
-                # Remove original lin_ref_set rows from the operating_target_features
-                operating_target_features = operating_target_features.drop(lin_ref_set.index)               
+                    # Remove any non-LineString geometries (e.g., GeometryCollection)
+                    match_segments, closest_targets = zip(
+                        *[(segment, idx) for segment, idx
+                          in zip(match_segments, closest_targets)
+                          if isinstance(segment, LineString)])
+                   
+                    # Calculate the match prop and lin_ref bounds for the grouped match segments
+                    match_props = [x.length/match_geom.length for x in match_segments]
+                    match_lin_refs = [tuple([match_geom.project(point) for point in endpoints(segment)]) 
+                                      for segment in match_segments]
 
-                # Append rows from lin_ref_set back onto operating_target_features
-                operating_target_features = operating_target_features.append(
-                    lin_ref_set, ignore_index=True)
+                    # Update match info for the chosen target
+                    for idx, match_prop, match_segment, match_lin_ref in zip(
+                        closest_targets, match_props, match_segments, match_lin_refs):
+                        # lin_ref_set.at[idx, 'match_index'] = match_id
+                        lin_ref_set.at[idx, 'm_prop'] = match_prop
+                        lin_ref_set.at[idx, 'm_seg'] = match_segment
+                        lin_ref_set.at[idx, 'm_linref'] = match_lin_ref
+                        lin_ref_set.at[idx, 'h_tm'] = directed_hausdorff(
+                            lin_ref_set.at[idx, 't_seg'], match_segment)
+                        lin_ref_set.at[idx, 'h_mt'] = directed_hausdorff(
+                            match_segment, lin_ref_set.at[idx, 't_seg'])
 
+                    # Remove match info for other targets in set
+                    not_closest_targets = [x for x in lin_ref_set.index
+                                              if x not in closest_targets]                
+
+                    for idx in not_closest_targets:
+                        lin_ref_set.at[idx, 't_prop'] = np.nan
+                        # lin_ref_set.at[lin_ref_set_idx, 't_seg'] = np.nan ########### Maybe don't get rid of the t_seg?
+                        lin_ref_set.at[idx, 't_linref'] = np.nan
+                        lin_ref_set.at[idx, 'm_prop'] = np.nan
+                        lin_ref_set.at[idx, 'm_seg'] = np.nan
+                        lin_ref_set.at[idx, 'm_linref'] = np.nan
+                        lin_ref_set.at[idx, 'h_tm'] = np.nan
+                        lin_ref_set.at[idx, 'h_mt'] = np.nan
+                        lin_ref_set.at[idx, 'match_index'] = np.nan
+
+                    # Remove original lin_ref_set rows from the operating_target_features
+                    operating_target_features = operating_target_features.drop(lin_ref_set.index)
+
+                    # Append rows from lin_ref_set back onto operating_target_features
+                    operating_target_features = operating_target_features.append(lin_ref_set)
+ 
     # Drop stats columns if not specifically requested
     if (closest_match or closest_target) and not match_stats:
         operating_target_features = operating_target_features.drop(
@@ -976,22 +993,9 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     if match_strings and (match_strings[1] not in match_fields):
         match_fields.append(match_strings[1])
 
-    # Convert empty lists to np.nan
-    operating_target_features['match_index'] = operating_target_features['match_index'].apply(
-        lambda x: np.nan if (isinstance(x, list) and len(x) == 0) else x)
-
-    # Copy over each column in match_fields
-    for field in match_fields:
-        try:
-            operating_target_features[field] = (
-                operating_target_features['match_index'].apply(
-                    lambda x: [
-                        match_features.at[i, field] 
-                        if pd.notnull(x)  
-                        else np.nan
-                        for i in listify(x)]))
-        except:
-            print(operating_target_features['match_index'])
+    # Join fields for matches
+    operating_target_features = operating_target_features.merge(
+        match_features[match_fields], how='left', left_on='match_index', right_index=True)
       
     # Join operating target features back onto all target features
     target_features = target_features.merge(

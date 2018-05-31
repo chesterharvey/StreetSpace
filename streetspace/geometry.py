@@ -1365,12 +1365,19 @@ def singlepart(gdf):
     return gdf
 
 
-def nearest_neighbor(shape, gdf):
+def nearest_neighbor(shape, gdf, hausdorff_distance=False):
     """Identify the nearest neighbor to a shape among features in a geodataframe
     
     """
     distances = []
-    for feature in gdf.itertuples():
-        distances.append(shape.distance(feature.geometry))
+    if hausdorff_distance:
+        for feature in gdf.itertuples():
+            # Minimum of directed hausdorff distances in both directions
+            dist_a = directed_hausdorff(feature.geometry, shape)
+            dist_b = directed_hausdorff(shape, feature.geometry)
+            distances.append(min([dist_a, dist_b]))
+    else:
+        for feature in gdf.itertuples():
+            distances.append(shape.distance(feature.geometry))
     return gdf.iloc[[np.argmin(distances)]]
 

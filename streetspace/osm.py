@@ -88,7 +88,7 @@ def _parse_osm_number(value, length=False, distance=False, speed=False, none_val
 
 
 def _identify_any_value_among_keys(tags_dict, keys, values, false_values=None,
-    true_value=True, false_value=False, none_value=None, keys_regex=False):
+    true_value=True, false_value=False, none_value=None, keys_regex=False, **unused):
     """Identify whether any of `values` is in any of `keys` in `tags_dict`.
 
     Parameters
@@ -137,6 +137,37 @@ def _identify_any_value_among_keys(tags_dict, keys, values, false_values=None,
         return true_value
     elif any(x is False for x in findings):
         return false_value
+    else:
+        return none_value
+
+def _identify_tag_combination(tags_dict, test_tags_dict, true_value=True, none_value=None,
+    **unused):
+    """Test whether there all of a particular combination of tags are in ``tags_dict``.
+
+    tags_dict : :obj:`dict`
+        Dictionary of tags related to OSM element
+
+    test_tags_dict : :obj:`dict`
+        Dictionary of tags (key:value pairs) that must be present in ``tags_dict``
+
+    true_value : any type, optional, default = ``True``
+        Value to return if all specified tags are found.
+
+    none_value : any type, optional, default = ``None``
+        Value to return if not all of the specified tags are found.
+
+    Returns
+    -------
+    ``true_value`` or ``none_value``
+    """
+    findings = []
+    for key, value in test_tags_dict.items():
+        if key in tags_dict and value == tags_dict[key]:
+            findings.append(True)
+        else:
+            findings.append(False)
+    if all(findings):
+        return true_value
     else:
         return none_value
 
@@ -363,11 +394,19 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                         tags, keys, values, **bool_codes)
 
                 # Off Street Path (True or nan)
+                # if 'off_street_path' in variable_names.keys():
+                #     keys = {'highway'}
+                #     values = {'cycleway'}
+                #     tags[variable_names['off_street_path']] = _identify_any_value_among_keys(
+                #         tags, keys, values, **bool_codes)
+
+                # Off Street Path (True or nan)
                 if 'off_street_path' in variable_names.keys():
-                    keys = {'highway'}
-                    values = {'cycleway'}
-                    tags[variable_names['off_street_path']] = _identify_any_value_among_keys(
-                        tags, keys, values, **bool_codes)
+                    if ((_identify_any_value_among_keys(tags, {'highway'}, {'cycleway'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'path', 'bike':'designated'}, **bool_codes) == true_value)):                       
+                        tags[variable_names['off_street_path']] = true_value
+                    else:
+                        tags[variable_names['off_street_path']] = none_value
 
                 # Minimum bike facility width (in feet)
                 if 'bike_facility_width' in variable_names.keys():
