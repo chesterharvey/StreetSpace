@@ -394,16 +394,26 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                         tags, keys, values, **bool_codes)
 
                 # Off Street Path (True or nan)
-                # if 'off_street_path' in variable_names.keys():
-                #     keys = {'highway'}
-                #     values = {'cycleway'}
-                #     tags[variable_names['off_street_path']] = _identify_any_value_among_keys(
-                #         tags, keys, values, **bool_codes)
-
-                # Off Street Path (True or nan)
                 if 'off_street_path' in variable_names.keys():
-                    if ((_identify_any_value_among_keys(tags, {'highway'}, {'cycleway'}, **bool_codes) == true_value) or
-                        (_identify_tag_combination(tags, {'highway':'path', 'bike':'designated'}, **bool_codes) == true_value)):                       
+                    if ((_identify_tag_combination(tags, {'highway':'track', 'bicycle':'designated', 'motor_vehicle':'no'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'track', 'bike':'designated', 'motor_vehicle':'no'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'track', 'bicycle':'official', 'motor_vehicle':'no'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'track', 'bike':'official', 'motor_vehicle':'no'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'path', 'bicycle':'yes'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'path', 'bike':'yes'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'path', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'path', 'bike':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'path', 'bicycle':'official'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'path', 'bike':'official'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'pedestrian', 'bicycle':'yes'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'pedestrian', 'bike':'yes'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'pedestrian', 'bicycle':'official'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'pedestrian', 'bike':'official'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'footway', 'bicycle':'yes'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'footway', 'bike':'yes'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'footway', 'bicycle':'official'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'footway', 'bike':'official'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'cycleway'}, **bool_codes) == true_value)):                       
                         tags[variable_names['off_street_path']] = true_value
                     else:
                         tags[variable_names['off_street_path']] = none_value
