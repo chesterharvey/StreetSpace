@@ -1011,16 +1011,6 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     # Sort by original index
     target_features = target_features.sort_values(['target_index'])
 
-    # Move original index to front if target features expanded (so there are multiple entries for some original indices)
-    # if expand_target_features:
-    target_features = df_first_column(target_features, 'target_index')
-    target_features = target_features.reset_index(drop=True)
-    # # Otherwise, set the index to the original index columns
-    # else:
-    target_features = target_features.set_index('target_index')
-    # Delete the index name
-    del target_features.index.name
-
     # Convert empty lists to NaN
     target_features = target_features.applymap(
         lambda x: np.nan if x == [] else x)
@@ -1059,8 +1049,12 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
         target_features['match_strings'] = target_features.apply(
             fuzzy_score, args=(target_string, match_string), axis=1)
 
+    # Move target index to front
+    target_features = df_first_column(target_features, 'target_index')
     # Move the geometry column to the end
     target_features = df_last_column(target_features, 'geometry')
+    # Reset the index
+    target_features = target_features.reset_index(drop=True)
     # Ensure that crs is the same as original
     target_features.crs = original_crs
 
