@@ -380,11 +380,25 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                         tags, keys, values, **bool_codes)
 
                 # Bike route in any direction (True or nan)
+                # if 'bike_route' in variable_names.keys():
+                #     keys = {'bicycle'}
+                #     values = {'designated'}
+                #     tags[variable_names['bike_route']] = _identify_any_value_among_keys(
+                #         tags, keys, values, **bool_codes)
+
+                # Bike route in any direction (True or nan)
                 if 'bike_route' in variable_names.keys():
-                    keys = {'bicycle'}
-                    values = {'designated'}
-                    tags[variable_names['bike_route']] = _identify_any_value_among_keys(
-                        tags, keys, values, **bool_codes)
+                    if ((_identify_tag_combination(tags, {'highway':'primary', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'primary_link', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'secondary':'secondary', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'secondary':'secondary_link', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'tertiary':'tertiary', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'tertiary':'tertiary_link', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'unclassified', 'bicycle':'designated'}, **bool_codes) == true_value) or
+                        (_identify_tag_combination(tags, {'highway':'residential', 'bicycle':'designated'}, **bool_codes) == true_value)):                       
+                        tags[variable_names['bike_route']] = true_value
+                    else:
+                        tags[variable_names['bike_route']] = none_value
 
                 # Bike boulevard in any direction (True or nan)
                 if 'bike_blvd' in variable_names.keys():
