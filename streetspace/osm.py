@@ -274,7 +274,7 @@ def _count_value_instances_among_keys(tags_dict, keys, values, full_match=True,
 
 
 def parse_osm_tags(overpass_json, variable_names, true_value=True, 
-    false_value=False, none_value=np.nan):
+    false_value=False, none_value=np.nan, imperial_units=False):
     """Identify the presense or scalar measure of particular features based on OSM tags.
 
     Uses pre-specified key:value combinations to identify features.
@@ -324,6 +324,10 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
     none_value : any type, optional, default = ``np.nan``
         Value to return if none of ``keys`` or ``false_values`` are found in
         any of ``values``.
+
+    imperial_units : bool, optional, default = ``False``
+        * ``True`` : Widths in feet, lengths in miles, speeds in mph
+        * ``False`` :  Widths in m, lengths in km, speeds in kph (OSM defaults)
 
     Returns
     -------
@@ -379,12 +383,6 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                     tags[variable_names['shoulder']] = _identify_any_value_among_keys(
                         tags, keys, values, **bool_codes)
 
-                # Bike route in any direction (True or nan)
-                # if 'bike_route' in variable_names.keys():
-                #     keys = {'bicycle'}
-                #     values = {'designated'}
-                #     tags[variable_names['bike_route']] = _identify_any_value_among_keys(
-                #         tags, keys, values, **bool_codes)
 
                 # Bike route in any direction (True or nan)
                 if 'bike_route' in variable_names.keys():
@@ -439,8 +437,9 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                         tags, keys, summary_function=min, keys_regex=True, 
                         length=True, **bool_codes)
                     # Convert from meters to feet
-                    if isinstance(width, (int, float)):
-                        width = np.round(width * 3.28084)
+                    if imperial_units:
+                        if isinstance(width, (int, float)):
+                            width = np.round(width * 3.28084)
                     tags[variable_names['bike_facility_width']] = width
 
                 # Minimum bike facility buffer width (in feet)
@@ -450,8 +449,9 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                         tags, keys, summary_function=min, keys_regex=True, 
                         length=True, **bool_codes)
                     # Convert from meters to feet
-                    if isinstance(width, (int, float)):
-                        width = np.round(width * 3.28084)
+                    if imperial_units:
+                        if isinstance(width, (int, float)):
+                            width = np.round(width * 3.28084)
                     tags[variable_names['bike_facility_buffer_width']] = width
 
                 # Parallel parking on either side (True or nan)
@@ -482,8 +482,9 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                     width = _summarize_number_among_keys(
                         tags, keys, summary_function=min, length=True, none_value=np.nan)#**bool_codes)
                     # Convert from meters to feet
-                    if isinstance(width, (int, float)):
-                        width = np.round(width * 3.28084)
+                    if imperial_units:
+                        if isinstance(width, (int, float)):
+                            width = np.round(width * 3.28084)
                     tags[variable_names['curb_to_curb_width']] = width
 
                 # Number of lanes (count)
@@ -506,8 +507,9 @@ def parse_osm_tags(overpass_json, variable_names, true_value=True,
                     speed = _summarize_number_among_keys(
                         tags, keys, summary_function=max, speed=True, **bool_codes)
                     # Convert from kph to mph
-                    if isinstance(speed, (int, float)):
-                        speed = np.round(speed * 0.621371)
+                    if imperial_units:
+                        if isinstance(speed, (int, float)):
+                            speed = np.round(speed * 0.621371)
                     tags[variable_names['speed_limit']] = speed
 
                 # Right turn lanes (count)
@@ -568,7 +570,7 @@ def merge_overpass_jsons(jsons):
 
 
 def retrieve_overpass_json(wgs_polygon=None, path=None, network_type='all_private', 
-    custom_filter=None):
+    custom_filter=None, force_download=False):
     """Download and pickle Overpass JSON, or retrieve pickled version.
 
     Parameters
@@ -600,7 +602,7 @@ def retrieve_overpass_json(wgs_polygon=None, path=None, network_type='all_privat
     if path:
         # Check to see if file already exists
         json_path = Path(path)
-        if json_path.is_file():
+        if json_path.is_file() and not force_download:
             with json_path.open() as f:
                 osm_json = json.load(f)
             return osm_json

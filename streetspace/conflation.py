@@ -983,10 +983,8 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
                         # Append rows from lin_ref_set back onto operating_target_features
                         operating_target_features = operating_target_features.append(lin_ref_set)
  
-    # Drop stats columns if not specifically requested
-    if not match_stats:
-        operating_target_features = operating_target_features.drop(
-            columns=['h_tm','t_prop','t_seg','t_linref','h_mt','m_prop','m_seg','m_linref'])
+    
+
 
     # Gather values from fields of match features
     if match_fields and isinstance(match_fields, bool):
@@ -1048,6 +1046,15 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             match_string = match_string + field_suffixes[1]
         target_features['match_strings'] = target_features.apply(
             fuzzy_score, args=(target_string, match_string), axis=1)
+
+    # Replace geometry with t_seg if there is one available
+    target_features['geometry'] = target_features.apply(
+        lambda row: row['t_seg'] if isinstance(row['t_seg'], LineString) else row['geometry'], axis=1)
+
+    # Drop stats columns if not specifically requested
+    if not match_stats:
+        target_features = target_features.drop(
+            columns=['h_tm','t_prop','t_seg','t_linref','h_mt','m_prop','m_seg','m_linref'])
 
     # Move target index to front
     target_features = df_first_column(target_features, 'target_index')

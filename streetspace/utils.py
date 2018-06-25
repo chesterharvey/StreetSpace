@@ -273,6 +273,15 @@ def df_last_column(df, column_name):
     return df.loc[:, cols]
 
 
+def df_move_column(df, column_name, new_location):
+    """Move a dataframe column to a new location based on integer index
+    """
+    df = df.copy()
+    columns = df.columns.tolist()
+    columns.insert(new_location, columns.pop(columns.index(column_name)))
+    return df[columns]
+
+
 def first(list_to_summarize):
     """Get the first item in a list.
     """
