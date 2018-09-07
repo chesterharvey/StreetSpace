@@ -1325,6 +1325,64 @@ def major_axis_azimuth(polygon):
     return max(azimuths)
 
 
+def major_minor_axes(shape, azimuths=False):
+
+    # Get minimum bounding rectangle
+    min_rectangle = shape.minimum_rotated_rectangle
+    
+    # Synthesize sides if minimum polygon is a linestring
+    if isinstance(min_rectangle, LineString):
+        # Synthesize longest sides
+        longest_sides = [min_rectangle, min_rectangle]
+        # Synthesize shortest sides
+        start, end = endpoints(test)
+        shortest_sides = [LingString(start, start), LineString(end, end)]
+        
+    else:
+        # Split rectangle into polyline sides
+        sides = split_line_at_vertices(min_rectangle.boundary)
+
+        # If minimum polygon is a square, major and minor axes are equal
+        if all([sides[0].length == sides[x].length for x in range(1,4)]):
+            # Arbitrarily select shorter and longer pairs or sides
+            longest_sides = [sides[0], sides[2]]
+            shortest_sides = [sides[1], sides[3]]
+
+        # Otherwise, figure out which sides are shortest and longest
+        else:
+            lengths = [x.length for x in sides]
+            # longest_sides = [side for side, length 
+            #     in zip(sides, lengths) if length == max(lengths)]
+            # shortest_sides = [side for side, length 
+            #     in zip(sides, lengths) if length == min(lengths)]
+            sides_by_length = [side for _, side in sorted(zip(lengths, sides), key=lambda x: x[0])]
+            shortest_sides = sides_by_length[:2]
+            longest_sides = sides_by_length[-2:]
+            
+    # Get azimuths for longest and shortest sides (if applicable)
+    if azimuths:
+        major_azimuth = max([azimuth(x) for x in longest_sides])
+        if max([x.length for x in shortest_sides]) > 0:        
+            minor_azimuth = max([azimuth(x) for x in shortest_sides])
+        else:
+            minor_azimuth = None
+        return major_azimuth, minor_azimuth
+    
+    # Find major axis
+    shortest_side_midpoints = [midpoint(x) for x in shortest_sides]
+    
+    try:
+        major_axis = LineString(shortest_side_midpoints)
+    except:
+        print(shortest_sides)
+    
+    # Find minor axis
+    longest_side_midpoints = [midpoint(x) for x in longest_sides]
+    minor_axis = LineString(longest_side_midpoints)
+    
+    return major_axis, minor_axis
+
+
 def remove_invalid_geometries(gdf):
     """Remove GeoDataFrame rows with non-standard geometries.
 
