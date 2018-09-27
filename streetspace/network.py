@@ -810,3 +810,85 @@ def find_unique_named_points(names, points, unique_names, unique_points):
             unique_names.append(names[i])
             unique_points.append(point)
     return names, points, unique_names, unique_points
+
+
+def build_nodes_from_edges(edges, search_distance=1):
+    """Identify common nodes at the ends of LineString edges.
+ 
+    LineString ends are considered equal (i.e., joined at the same network node)
+    within the specified search distance.
+
+    Parameters
+    ----------
+    edges : :class:`geopandas.GeoDataFrame`
+        LineString GeoDataFrame to be interpreted as graph edges
+    search_distance : :obj:`float`, optional, default = 1.0
+        Distance within which edge endpoints will be considered identical nodes
+
+    Returns
+    ----------
+    nodes : :class:`geopandas.GeoDataFrame`
+        New nodes identified at the endpoints of edges
+
+    edges : :class:`geopandas.GeoDataFrame`
+        Edges with 'u' and 'v' columns corresponding to nodes IDs
+    """
+
+    # Make an empty dataframe to store unique nodes as they are identified
+    nodes = pd.DataFrame(columns=['geometry'])
+
+    # Make a dataframe of edges with edge geometry, node geometries, and empty columns for node ids
+    original_edges = edges
+    edges = gpd.GeoDataFrame(geometry=edges['geometry'], columns=['u_geom','v_geom','u','v'], crs=edges.crs)
+    endpoints = edges['geometry'].apply(lambda x: sp.endpoints(x))
+    edges['u_geom'] = endpoints.apply(lambda x: x[0])
+    edges['v_geom'] = endpoints.apply(lambda x: x[1])
+
+    # Make a spatial index of edges
+    edges_sindex = edges.sindex
+
+    # Iterate through edges
+    for e in edges.itertuples():
+
+        # Iterate through edge endpoint, i
+        for i_end, i_geom in zip(('u','v'), (e.u_geom, e.v_geom)):
+            
+            # See if a node isn't assigned yet
+            if np.isnan(edges.at[e.Index, i_end]):
+
+                # Assign it the next node
+                i_node = len(nodes)
+                nodes = nodes.append({'geometry':i_geom}, ignore_index=True)
+                edges.at[e.Index, i_end] = i_node
+
+                # Figure out which edge ends should also be assigned this node
+                i_buffer = i_geom.buffer(search_distance * 2)
+                nearby_edge_ids = list(edges_sindex.intersection(i_buffer.bounds))
+                nearby_edges = edges.iloc[nearby_edge_ids]
+                nearby_edges = nearby_edges[nearby_edges.intersects(i_buffer)].copy()
+
+                # remove the current edge from consideration
+                nearby_edges.drop([e.Index], inplace=True)
+
+                # Iterate through nearby edges
+                for j in nearby_edges.itertuples():
+                
+                    # Iterate through nearby edge endpoints, k
+                    for k_end, k_node, k_geom in zip(('u','v'), (j.u, j.v), (j.u_geom, j.v_geom)):
+                        
+                        # See if a node isn't assigned yet
+                        if np.isnan(edges.at[j.Index, k_end]):
+
+                            # See if i and k are approximatly equal
+                            if i_geom.distance(k_geom) <= search_distance:
+
+                                # If yes, assign it the same node as i                               
+                                edges.at[j.Index, k_end] = i_node
+
+    nodes = gpd.GeoDataFrame(data=nodes, geometry='geometry', crs=edges.crs)
+    nodes.gdf_name = ''
+    original_edges['u'] = edges['u']
+    original_edges['v'] = edges['v']
+    edges = original_edges
+
+    return nodes, edges
