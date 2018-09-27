@@ -818,6 +818,8 @@ def build_nodes_from_edges(edges, search_distance=1):
     LineString ends are considered equal (i.e., joined at the same network node)
     within the specified search distance.
 
+    Outputs can be used as inputs for OSMnx 'gdfs_to_graph' function.
+
     Parameters
     ----------
     edges : :class:`geopandas.GeoDataFrame`
