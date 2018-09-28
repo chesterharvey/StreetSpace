@@ -842,7 +842,7 @@ def build_nodes_from_edges(edges, search_distance=1):
     # Make a dataframe of edges with edge geometry, node geometries, and empty columns for node ids
     original_edges = edges
     edges = gpd.GeoDataFrame(geometry=edges['geometry'], columns=['u_geom','v_geom','u','v'], crs=edges.crs)
-    endpoints = edges['geometry'].apply(lambda x: sp.endpoints(x))
+    endpoints = edges['geometry'].apply(lambda x: endpoints(x))
     edges['u_geom'] = endpoints.apply(lambda x: x[0])
     edges['v_geom'] = endpoints.apply(lambda x: x[1])
 
