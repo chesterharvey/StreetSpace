@@ -590,6 +590,9 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     
 
     """
+    # Make a copy of the graph so it doesn't change
+    G = G.copy()
+
     points = points.reset_index(drop=True)
     points_order = ['a_name', 'a_point', 'b_name', 'b_point']
     # Parse DataFrame columns into lists (assumes correct column order)
@@ -692,7 +695,7 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     return return_dataframe, unrouted_pairs
 
 
-def collect_route_attributes(route, G, summaries):
+def collect_route_attributes(route, G, summaries=None):
     """Collect attributes of edges along a route defined by nodes.
 
     Parameters
@@ -701,13 +704,15 @@ def collect_route_attributes(route, G, summaries):
         List nodes forming route
     G : :class:`networkx.Graph`
         Graph containing route
-    summaries : :class:`OrderedDict`
+    summaries : :class:`OrderedDict`, optional, default = None
         Keys are names for summaries, uses as keys in ``collected_summaries``.\
         Values are tuples with the first value being function for calculating\
         the requested summary, and the second value being the name for the\
         edge attribute from which the function makes these calulations.\
         Functions must take a single list-type parameter and operate on the\
         types of attributes for which they are called.
+
+        If default, will return summary of geometry and geometric route length
 
     Returns
     ----------
@@ -719,6 +724,15 @@ def collect_route_attributes(route, G, summaries):
         Keys are attributes defined in the keys of ``summaries``. Values are\
         products of the functions defined in the values of ``summaries``.
     """
+    default_summaries = OrderedDict(
+        [('route',  (lambda x: MultiLineString(x) if len(x) > 0 else None, 'geometry')),
+         ('rt_len', (lambda x: sum(x) if len(x) > 0 else np.inf, 'length'))])
+
+    if not summaries:
+        summaries = default_summaries
+    else:
+        default_summaries.update(summaries)
+
     # Get data from edges along route
     route_data = [G.get_edge_data(u, v) for u,v, in list(zip(route[:-1], route[1:]))]    
     # Make a structured array to store collected attributes
@@ -766,6 +780,7 @@ def collect_route_attributes(route, G, summaries):
     collected_summaries.append(('log', route))
     # Convert summaries into an ordered dict
     collected_summaries = OrderedDict(collected_summaries)
+    
     return collected_attributes, collected_summaries
 
 
@@ -889,8 +904,65 @@ def build_nodes_from_edges(edges, search_distance=1):
 
     nodes = gpd.GeoDataFrame(data=nodes, geometry='geometry', crs=edges.crs)
     nodes.gdf_name = ''
+    nodes['x'] = nodes['geometry'].apply(lambda x: x.x)
+    nodes['y'] = nodes['geometry'].apply(lambda x: x.y)
+    nodes['osmid'] = nodes.index
     original_edges['u'] = edges['u']
     original_edges['v'] = edges['v']
     edges = original_edges
 
     return nodes, edges
+
+
+def fill_missing_graph_geometries(G):
+    """Create missing edge geometries by connecting u and v nodes.
+
+    Parameters
+    ----------
+    G : :class:`networkx.Graph`
+        Graph with missing edge geometry attributes
+
+    Returns
+    ----------
+    G : :class:`networkx.Graph`
+        Graph with filled edge geometry attributes
+    """
+    nodes_x = nx.get_node_attributes(G, 'x')
+    nodes_y = nx.get_node_attributes(G, 'y')
+    for u, v, key, data in G.edges(data=True, keys=True):
+        if 'geometry' not in data:
+            G[u][v][key]['geometry'] = sh.geometry.LineString([(nodes_x[u],nodes_y[u]),
+                                               (nodes_x[v],nodes_y[v])])
+
+    return G
+
+
+def make_backward_edges(edges, twoway_column='oneway', twoway_id='False'):
+    """Create a duplicate edge in the opposite direction for every two-way edge
+    
+    """
+    
+    edges = edges.copy()
+
+    # Get two-way edges
+    two_way_edges = edges[edges[twoway_column] == twoway_id].copy()
+
+    # Flip endpoint IDs
+    if 'u' in two_way_edges.columns and 'v' in two_way_edges.columns:
+        u = two_way_edges['u']
+        v = two_way_edges['v']
+        two_way_edges['u'] = v
+        two_way_edges['v'] = u   
+    if 'to' in two_way_edges.columns and 'from' in two_way_edges.columns:
+        to = two_way_edges['to']
+        _from = two_way_edges['from']
+        two_way_edges['to'] = _from
+        two_way_edges['from'] = to
+
+    # Flip geometry    
+    two_way_edges['geometry'] = two_way_edges['geometry'].apply(lambda x: sh.geometry.LineString(x.coords[::-1]))
+
+    # Append flipped edges back onto edges
+    edges = edges.append(two_way_edges, ignore_index=True)
+    
+    return edges
