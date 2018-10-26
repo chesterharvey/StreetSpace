@@ -1032,3 +1032,43 @@ def remove_extraneous_nodes(G):
     return G
 
 
+def subgraph_by_edge_attribute(G, attribute, values, simplify=True):
+    """Make a subgraph of edges that have any of the supplied values
+    
+    G : networkx graph
+    
+    attribute : str
+    
+    values : list
+
+    simply : bool
+        True : Extraneous nodes are removed and edge geometries are merged
+        False : Original nodes and edge geometries are retained
+    
+    returns : networkx graph
+    """
+    
+    # Get dictionary of edge attributes
+    edge_dict = nx.get_edge_attributes(G, attribute)
+
+    # Identify edges with these highway tags
+    def list_overlap(value, values):
+        # ensure that value is a list
+        value = listify(value)
+        # find intersection
+        intersection = [x for x in value if x in values]
+        if len(intersection) > 0:
+            return True
+        else:
+            return False
+    edges_subset = [key for key, value in edge_dict.items() if list_overlap(value, values)]
+
+    # Make subgraph from these edges
+    G = G.edge_subgraph(edges_subset).copy()
+
+    if simplify:
+        G = remove_extraneous_nodes(G)
+    
+    return G
+
+
