@@ -17,6 +17,7 @@ from geopandas import GeoDataFrame
 from collections import OrderedDict
 
 from .geometry import *
+from .utils import *
 
 
 def closest_point_along_network(search_point, G, search_distance=None, 
@@ -966,3 +967,68 @@ def make_backward_edges(edges, twoway_column='oneway', twoway_id='False'):
     edges = edges.append(two_way_edges, ignore_index=True)
     
     return edges
+
+
+def remove_extraneous_nodes(G):
+    """Simplify a network by removing extraneous nodes and welding edge geometries
+
+    G : networkx graph
+    """
+    
+    # Use a copy of the graph
+    G = G.copy()
+
+    # Identify paths that could be simplified
+    paths_to_simplify = ox.simplify.get_paths_to_simplify(G, strict=True)
+
+    for path in paths_to_simplify:
+
+        # Construct segment endpoints
+        segment_endpoints = [(path[i], path[i + 1]) for i in range(0, len(path) - 1)]
+
+        # Gather segment attributes
+        segments = [G.get_edge_data(u, v, 0) for u, v in segment_endpoints]
+
+        # Remove segments whose attributes are None
+        segments = [x for x in segments if x] 
+
+        # Combine attribute dictionaries
+        new_edge = merge_dictionaries(segments)
+
+        # For non-geometry attributes, collapse like attributes
+        for key, value in new_edge.items():
+            if key not in ['geometry','length']:
+                # Ensure that lists are flat
+                value = flatten(value)
+
+                # Collapse similar values
+                value = list(set(value))
+
+                # Extract from list if only one value
+                if len(value) == 1:
+                    value = value[0]
+                new_edge[key] = value
+
+        # Weld together geometries
+        new_edge['geometry'] = merge_ordered_lines(new_edge['geometry'])
+
+        # Calculate new length
+        new_edge['length'] = new_edge['geometry'].length
+
+        # Insert new edge
+        G.add_edge(path[0], path[-1], **new_edge)
+
+    # Once all new edges are created, remove old edges
+    for path in paths_to_simplify:
+        # Construct segment endpoints
+        segment_endpoints = [(path[i], path[i + 1]) for i in range(0, len(path) - 1)]
+        # Remove each segment
+        for (u, v) in segment_endpoints:
+            G.remove_edge(u, v)
+
+    # Remove orphan nodes (with no edges connecting anymore)
+    G.remove_nodes_from(list(nx.isolates(G)))
+    
+    return G
+
+

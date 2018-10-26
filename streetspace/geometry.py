@@ -1439,3 +1439,22 @@ def nearest_neighbor(shape, gdf, hausdorff_distance=False):
             distances.append(shape.distance(feature.geometry))
     return gdf.iloc[[np.argmin(distances)]]
 
+
+def merge_ordered_lines(lines):
+    """Merge lines together in a specified order, filling gaps between line ends
+    
+    Always creates a continuous LineString.
+    
+    To merge without filling gaps (e.g., pruducing a MultiLineString), use shapely.ops.linemerge
+        
+    """
+    # Collapse line coordinates into a single list
+    coords = [pair for pairs in lines for pair in zip(*pairs.coords.xy)]
+    
+    # Remove sequentially-redundant coordinates
+    coords = remove_sequential_duplicates(coords)
+    
+    # Construct a line from these coordinates
+    merged_line = LineString(coords)
+    
+    return merged_line

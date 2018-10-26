@@ -437,3 +437,39 @@ def merge_intervals(intervals):
             else:
                 merged.append(higher)
     return merged
+
+
+def merge_dictionaries(dicts):
+    """Collapse values for similar keys in a list of dictionaries.
+
+    Merged values are stored in lists
+    """
+    dd = collections.defaultdict(list)
+    for d in dicts:
+        for key, value in d.items():
+            dd[key].append(value)
+    return dd
+
+
+def flatten(l):
+    """Flatten nested iterables within lists
+
+    l : list containing individual values or lists
+
+    """
+    for x in l:
+        if isinstance(x, collections.Iterable) and not isinstance(x, (str, bytes)):
+            yield from flatten(x)
+        else:
+            yield x
+
+
+def remove_sequential_duplicates(l):
+    """Drops duplicate values from a list while maintaining list order
+
+    l : list
+
+    """
+    seen = set()
+    return [x for x in l if not (x in seen or seen.add(x))]
+
