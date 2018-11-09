@@ -1458,3 +1458,32 @@ def merge_ordered_lines(lines):
     merged_line = LineString(coords)
     
     return merged_line
+
+
+def generate_points_within_polygon(polygon, n):
+    """Generate n random points within a polygon.    
+    """
+    points = []
+    
+    # Get maximum bounds of polygon
+    x_min, y_min, x_max, y_max = polygon.bounds
+
+    while len(points) < n:
+
+        # Draw random coordinate values within these extents
+        x = np.random.uniform(x_min, x_max, n * 2)
+        y = np.random.uniform(y_min, y_max, n * 2)
+
+        # Construct points from these values
+        new_points = [sh.geometry.Point(x,y) for x, y in zip(x, y)]
+        new_points = gpd.GeoDataFrame(geometry=new_points)
+
+        # Only keep points within the polygon
+        new_points = gdf_intersecting_polygon(new_points, polygon, quadrat_size=500)
+
+        points.extend(new_points['geometry'].tolist())
+
+    if len(points) > n:
+        points = points[:n]
+        
+    return points
