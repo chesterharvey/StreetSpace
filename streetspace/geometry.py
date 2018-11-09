@@ -13,6 +13,7 @@ import osmnx as ox
 import mplleaflet
 import random
 import matplotlib
+import math
 from shapely.ops import linemerge
 from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
     Polygon, MultiPolygon, GeometryCollection)
@@ -1568,17 +1569,17 @@ def construct_hexagons(startx, starty, endx, endy, radius):
 def hexagon_grid(gdf, radius):
 	"""Create mesh of hexagons with a specific radius across the same extent as a gdf
 
-	"""    
-    # get bounds of supplied geodataframe
-    minx, miny, maxx, maxy = gdf.total_bounds
-    
-    # calculate coordinates for hexagons
-    hex_coords = construct_hexagons(minx, miny, maxx, maxy, radius)
-    
-    # construct hexagon polygons
-    hexagons = [sh.geometry.Polygon(coords) for coords in hex_coords]
-    
-    # convert to geodataframe
-    hexagons = gpd.GeoDataFrame(geometry=hexagons, crs=gdf.crs) 
-    
-    return hexagons
+	"""
+	# get bounds of supplied geodataframe
+	minx, miny, maxx, maxy = gdf.total_bounds
+
+	# calculate coordinates for hexagons
+	hex_coords = construct_hexagons(minx, miny, maxx, maxy, radius)
+
+	# construct hexagon polygons
+	hexagons = [sh.geometry.Polygon(coords) for coords in hex_coords]
+
+	# convert to geodataframe
+	hexagons = gpd.GeoDataFrame(geometry=hexagons, crs=gdf.crs) 
+
+	return hexagons
