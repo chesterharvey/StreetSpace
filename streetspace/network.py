@@ -548,7 +548,7 @@ def load_index(path, open_copy=False, close_first=None):
         return index.Index(path)
 
 
-def route_node_pairs(node_pairs, G, weight=None, both_ways=False, verbose=False):
+def route_node_pairs(node_pairs, G, weight='length', both_ways=False, verbose=False):
     """Route shortest paths between pairs of nodes in a graph.
 
     Parameters
@@ -567,7 +567,7 @@ def route_node_pairs(node_pairs, G, weight=None, both_ways=False, verbose=False)
     :obj:`list`
         List of lists of node IDs for each route.
     """
-    def route(G, O, D, weight=None):
+    def route(G, O, D, weight='length'):
         try:
             return nx.shortest_path(G, O, D, weight)
         except Exception as e:
@@ -585,7 +585,7 @@ def route_node_pairs(node_pairs, G, weight=None, both_ways=False, verbose=False)
 
 
 def route_between_points(points, G, additional_summaries=None, summarize_links=False,
-    search_distance=None, sindex=None, points_to_nodes=True, weight=None, 
+    search_distance=None, sindex=None, points_to_nodes=True, weight='length', 
     both_ways=False, accessibility_functions=None, verbose=False):
     """Route between pairs of points passed as columns in a DataFrame
     
@@ -645,22 +645,30 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     # Replace points names with any aliases 
     a_names = [node_aliases[x] if x in node_aliases else x for x in a_names]
     b_names = [node_aliases[x] if x in node_aliases else x for x in b_names]
+    
     # Pair up nodes
     routing_pairs = list(zip(a_names, b_names)) 
+    
     # Route between pairs
     routes = route_node_pairs(routing_pairs, G, weight=weight, both_ways=both_ways)  
+    
     if verbose:
         print('routing time: {}'.format(time()-chunk_time))
         chunk_time = time()
         print('{} routes found'.format(len(routes)))
+    
     # Define default summaries
     default_summaries = OrderedDict(
-        [('route',  (lambda x: MultiLineString(x) if len(x) > 0 else None, 'geometry')),
-         ('rt_len', (lambda x: sum(x) if len(x) > 0 else np.inf, 'length'))])
+        [('geometry',  (lambda x: MultiLineString(x) if len(x) > 0 else None, 'geometry')),
+         ('length', (lambda x: sum(x) if len(x) > 0 else np.inf, 'length'))])
     weight_summary = OrderedDict(
-        [('wgt_sum',(lambda x: sum(x) if len(x) > 0 else np.inf, 'wgt_len'))])
+        [('wgt_len',(lambda x: sum(x) if len(x) > 0 else np.inf, 'wgt_len'))])
     # Add weight sum if weights are used for routing
-    if weight is not None:
+    
+    if weight is not 'length':
+        # Calculate weighted length attributes for all edges
+
+        # Add weight summary to summaries dictionary
         default_summaries.update(weight_summary)
     # Use default summary alone if no other summaries specified
     if additional_summaries is None:
