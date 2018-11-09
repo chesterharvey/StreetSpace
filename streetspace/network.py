@@ -661,15 +661,23 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     default_summaries = OrderedDict(
         [('geometry',  (lambda x: MultiLineString(x) if len(x) > 0 else None, 'geometry')),
          ('length', (lambda x: sum(x) if len(x) > 0 else np.inf, 'length'))])
+    
     weight_summary = OrderedDict(
         [('wgt_len',(lambda x: sum(x) if len(x) > 0 else np.inf, 'wgt_len'))])
+    
     # Add weight sum if weights are used for routing
     
     if weight is not 'length':
         # Calculate weighted length attributes for all edges
+        wgt_lens = {}
+        for edge in G.edges(data=True, keys=True):
+            weight = edge[-1]['weight'] if 'weight' in edge[-1] else 1
+            wgt_lens[edge[0:3]] = edge[-1]['length'] * weight
+        nx.set_edge_attributes(G, wgt_lens, 'wgt_len')
 
         # Add weight summary to summaries dictionary
         default_summaries.update(weight_summary)
+        
     # Use default summary alone if no other summaries specified
     if additional_summaries is None:
         summaries = default_summaries
@@ -702,7 +710,7 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     # return_dataframe = return_dataframe[points_order + remaining]
     unrouted_pairs = [(i, x) for i, x in enumerate(routes) if isinstance(x, str)]
     return return_dataframe, unrouted_pairs
-
+    
 
 def collect_route_attributes(route, G, summaries=None):
     """Collect attributes of edges along a route defined by nodes.
