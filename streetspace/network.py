@@ -1088,3 +1088,171 @@ def subgraph_by_edge_attribute(G, attribute, values, simplify=True):
     return G
 
 
+##### The following functions are for modeling turns within intersections #####
+##### Docstrings needs to be fleshed out #####
+
+def explode_node(G, node):
+    """Create non-geometric edges between all 'in' and 'out' edges at each node
+    """
+    
+    # Find all entering edges
+    orig_in_edges = list(G.in_edges(node, keys=True))
+
+    # Find all exiting edges
+    orig_out_edges = list(G.out_edges(node, keys=True))
+
+    # Get attributes from existing node
+    node_attributes = G.node[node]
+
+    def add_node(G, edge, counter, direction):
+        # Add a new node
+        new_node = '{}_{}{}'.format(node, direction, counter)
+        G.add_node(new_node, attr_dict=node_attributes)
+        # Add a new edge
+        edge_attributes = G.get_edge_data(*edge)
+        u, v, key = edge
+        if direction == 'in': 
+            new_edge = (u, new_node, key)
+        elif direction == 'out':
+            new_edge = (new_node, v, key)
+        # Add the new edge into the graph
+        G.add_edge(*new_edge)
+        # Add original edge attributes
+        new_u, new_v, new_key = new_edge
+        for attr in edge_attributes:
+            G[new_u][new_v][new_key][attr] = edge_attributes[attr]
+        # Remove old edge
+        G.remove_edge(*edge)
+        # Advance counter
+        counter += 1
+        return new_edge, new_node, counter 
+    
+    in_nodes = []
+    in_edges = []
+    in_i = 0 # start counter 
+    for orig_in_edge in orig_in_edges:
+        # Add a new node
+        in_edge, in_node, in_i = add_node(G, orig_in_edge, in_i, 'in')
+        in_nodes.append(in_node)
+        in_edges.append(in_edge)
+
+    out_nodes = []
+    out_edges = []
+    out_i = 0 # start counter 
+    for orig_out_edge in orig_out_edges:
+        # Add a new node
+        out_edge, out_node, out_i = add_node(G, orig_out_edge, out_i, 'out')
+        out_nodes.append(out_node)
+        out_edges.append(out_edge)
+    
+    # Remove old node
+    G.remove_node(node)
+    
+    # Connect new nodes with edges
+    inter_edges = []
+    for in_node in in_nodes:
+        for out_node in out_nodes:
+            new_edge = (in_node, out_node, 0)
+            G.add_edge(*new_edge)
+            inter_edges.append(new_edge)
+          
+    return in_edges, out_edges
+
+
+def classify_turns(G, in_edges, out_edges, straight_angle=20):
+    """Classify turning movements between 'in' and 'out' edges at intersections
+    """
+    # Only proceed if there are 'in' edges
+    if len(out_edges) > 0:
+        # Iterate through in edges
+        for in_edge in in_edges:
+            in_u, in_v, in_key = in_edge
+            # Get the azimuth of 'in' edge
+            in_geom = G[in_u][in_v][in_key]['geometry']
+            in_geom_len = in_geom.length
+            in_azimuth = sp.azimuth_at_distance(in_geom, in_geom_len) # Azimuth at the entering line's end
+
+            # Get the azimuths of each 'out' edge
+            out_edge_azimuths = []
+            for out_edge in out_edges:
+                out_u, out_v, out_key = out_edge            
+                out_geom = G[out_u][out_v][out_key]['geometry']
+                # Azimuth at the out edge start
+                out_azimuth = sp.azimuth_at_distance(out_geom, 0)
+                relative_azimuth = out_azimuth - in_azimuth
+                out_edge_azimuths.append(relative_azimuth)
+
+            # Sort edges and azimuths by azimuth
+            try:
+                out_edges, out_edge_azimuths = zip(*sorted(zip(out_edges, out_edge_azimuths), key=lambda x: x[1]))
+            except:
+                print(out_edges, out_edge_azimuths)
+
+            # Classify turn directions
+            turn_directions = [classify_turn_direction(x, straight_angle) for x in out_edge_azimuths]
+
+            # Classify turn proximity
+            turns_proximities = classify_turn_proximity(turn_directions)
+
+            # Assign turn label to intersection edges
+            for (out_u, _, _), turn_direction, turn_proximity in zip(out_edges, turn_directions, turns_proximities):
+                G[in_v][out_u][0]['turn_direction'] = turn_direction
+                G[in_v][out_u][0]['turn_proximity'] = turn_proximity
+                
+
+def classify_turn_direction(relative_azimuth, straight_angle=20):
+    """Classify turn directions based on a relative azimuth     
+    """
+    a, b, c, d = (
+        0 + straight_angle, 
+        180 - straight_angle, 
+        180 + straight_angle, 
+        360 - straight_angle)
+    if (relative_azimuth > d) or (relative_azimuth < a):
+        return 'U'
+    elif (relative_azimuth > a) and (relative_azimuth < b):
+        return 'right'
+    elif (relative_azimuth > b) and (relative_azimuth < c):
+        return 'straight'
+    elif (relative_azimuth > c) and (relative_azimuth < d):
+        return 'left'
+    
+def classify_turn_proximity(turn_directions):
+    """Classify turn proximity based on a list of turn directions  
+    """
+    # Enumerate turns
+    enum_turns = list(enumerate(turn_directions))
+    # Identify U-turns
+    u_turns = {i: 'near' for i, x in enum_turns if x == 'U'}
+    # Remove U-turns
+    enum_turns = [(i, x) for i, x in enum_turns if x != 'U']
+    # First and last turns are 'near', all others are 'far
+    turn_proximity = ['far'] * len(enum_turns)
+    if len(turn_proximity) > 0:
+        turn_proximity[0] = 'near'
+        turn_proximity[-1] = 'near'
+        # Enumerate proximities
+        enum_proximity = [(i, x) for (i, _), x in zip(enum_turns, turn_proximity)]
+        # Convert into dictionary
+        enum_proximity = dict(enum_proximity)      
+    else:
+        enum_proximity = {}
+    # Combine non-U-turns and U-turns
+    turn_proximities = {**enum_proximity, **u_turns}
+    # List proximities in order
+    turn_proximities = [turn_proximities[key] for key in sorted(turn_proximities.keys())]
+    return turn_proximities
+
+
+def create_intersection_edges(G, straight_angle=20):
+    """Add non-geometric edges to represent turns at intersections
+    """
+    G = G.copy()
+    for node in list(G.nodes()):
+        # Explode the node into edges
+        in_edges, out_edges = explode_node(G, node)
+        # Classify turns on edges
+        classify_turns(G, in_edges, out_edges, straight_angle=straight_angle)
+    return G
+
+
