@@ -1170,7 +1170,7 @@ def classify_turns(G, in_edges, out_edges, straight_angle=20):
             # Get the azimuth of 'in' edge
             in_geom = G[in_u][in_v][in_key]['geometry']
             in_geom_len = in_geom.length
-            in_azimuth = sp.azimuth_at_distance(in_geom, in_geom_len) # Azimuth at the entering line's end
+            in_azimuth = azimuth_at_distance(in_geom, in_geom_len) # Azimuth at the entering line's end
 
             # Get the azimuths of each 'out' edge
             out_edge_azimuths = []
@@ -1178,7 +1178,7 @@ def classify_turns(G, in_edges, out_edges, straight_angle=20):
                 out_u, out_v, out_key = out_edge            
                 out_geom = G[out_u][out_v][out_key]['geometry']
                 # Azimuth at the out edge start
-                out_azimuth = sp.azimuth_at_distance(out_geom, 0)
+                out_azimuth = azimuth_at_distance(out_geom, 0)
                 relative_azimuth = out_azimuth - in_azimuth
                 out_edge_azimuths.append(relative_azimuth)
 
