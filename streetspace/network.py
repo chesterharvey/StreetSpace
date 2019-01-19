@@ -137,7 +137,6 @@ def remove_edge(G, edge, location, sindex=None):
     if sindex:
         edge_geom = G.get_edge_data(*edge)['geometry']
         location = edge_geom.buffer(1).bounds
-        # location = location.buffer(500).bounds
         nearby_edges = search_sindex_items(sindex, location, bbox=True)
         sindex_id = [x[0] for x in nearby_edges if x[1] == edge]
         sindex_id = sindex_id[0]
@@ -742,8 +741,8 @@ def collect_route_attributes(route, G, summaries=None):
         products of the functions defined in the values of ``summaries``.
     """
     default_summaries = OrderedDict(
-        [('route',  (lambda x: MultiLineString(x) if len(x) > 0 else None, 'geometry')),
-         ('rt_len', (lambda x: sum(x) if len(x) > 0 else np.inf, 'length'))])
+        [('route',  (lambda x: MultiLineString([y for y in x if isinstance(y, LineString)]) if len(x) > 0 else None, 'geometry')),
+         ('rt_len', (lambda x: sum(x) if len([y for y in x if isinstance(y, float)]) > 0 else np.inf, 'length'))])
 
     if not summaries:
         summaries = default_summaries
@@ -1107,20 +1106,17 @@ def explode_node(G, node):
     def add_node(G, edge, counter, direction):
         # Add a new node
         new_node = '{}_{}{}'.format(node, direction, counter)
-        G.add_node(new_node, attr_dict=node_attributes)
+        G.add_node(new_node, **node_attributes)
         # Add a new edge
-        edge_attributes = G.get_edge_data(*edge)
         u, v, key = edge
+        # edge_attributes = G.get_edge_data(*edge)
+        edge_attributes = G[u][v][key]
         if direction == 'in': 
             new_edge = (u, new_node, key)
         elif direction == 'out':
             new_edge = (new_node, v, key)
         # Add the new edge into the graph
-        G.add_edge(*new_edge)
-        # Add original edge attributes
-        new_u, new_v, new_key = new_edge
-        for attr in edge_attributes:
-            G[new_u][new_v][new_key][attr] = edge_attributes[attr]
+        G.add_edge(*new_edge, **edge_attributes)
         # Remove old edge
         G.remove_edge(*edge)
         # Advance counter
@@ -1140,10 +1136,12 @@ def explode_node(G, node):
     out_edges = []
     out_i = 0 # start counter 
     for orig_out_edge in orig_out_edges:
-        # Add a new node
-        out_edge, out_node, out_i = add_node(G, orig_out_edge, out_i, 'out')
-        out_nodes.append(out_node)
-        out_edges.append(out_edge)
+        # If edge is self-loop, may have already been deleted
+        if G.has_edge(*orig_out_edge):
+            # Add a new node
+            out_edge, out_node, out_i = add_node(G, orig_out_edge, out_i, 'out')
+            out_nodes.append(out_node)
+            out_edges.append(out_edge)
     
     # Remove old node
     G.remove_node(node)
@@ -1155,7 +1153,14 @@ def explode_node(G, node):
             new_edge = (in_node, out_node, 0)
             G.add_edge(*new_edge)
             inter_edges.append(new_edge)
-          
+
+    # Add original node attributes to inter-edges
+    for edge in inter_edges:
+        u, v, key = edge
+        edge_attributes = node_attributes
+        edge_attributes.update(G[u][v][key])
+        for attribute, value in edge_attributes.items():
+            G[u][v][key][attribute] = value          
     return in_edges, out_edges
 
 
@@ -1248,11 +1253,150 @@ def create_intersection_edges(G, straight_angle=20):
     """Add non-geometric edges to represent turns at intersections
     """
     G = G.copy()
+    # Split self-looping edges so that their ends are distinguishable
+    G = split_self_loops(G)
+    # Explode each node into sub-edges
     for node in list(G.nodes()):
         # Explode the node into edges
         in_edges, out_edges = explode_node(G, node)
         # Classify turns on edges
         classify_turns(G, in_edges, out_edges, straight_angle=straight_angle)
     return G
+
+
+# Convert segments to a graph
+def gdf_edges_to_graph(gdf, twoway_column='oneway', twoway_id='False', search_distance=1):
+    """Identify nodes and construct a NetworkX graph based on edge segments in a gdf
+    """
+    # Operate on a copy of the geodataframe
+    gdf = gdf.copy()
+    # Make backward edges if requested
+    if twoway_column:
+        gdf = make_backward_edges(gdf, twoway_column=twoway_column, twoway_id=twoway_id)
+    # Identify graph nodes
+    nodes, edges = build_nodes_from_edges(gdf, search_distance=search_distance)
+    # Build graph
+    G = ox.gdfs_to_graph(nodes, edges)
+    return G
+
+def attach_gdf_point_attributes_to_graph_nodes(G, point_gdf, search_distance=1):
+    """Attaches attributes from gpf points the the closest graph node within a search distance
+    
+    Assumes that graph nodes have attributes 'x' and 'y' containing spatial coordinates
+    in the same coordinate reference system (crs) as the gdf points
+    """
+    # Operate on a copy of the graph
+    G = G.copy()
+    
+    # Make a spatial index for the gdf
+    point_gdf_sindex = point_gdf.sindex
+    
+    for i, data in G.nodes(data=True):
+        # Construct a point based on node coordinates
+        node_point = Point(data['x'], data['y'])
+        # Buffer the point
+        node_buffer = node_point.buffer(search_distance)
+        # Find all npoints from the gdf within that distance
+        nearby_indices = list(point_gdf_sindex.intersection(node_buffer.bounds))
+        nearby_point_gdf = point_gdf.iloc[nearby_indices]
+        if len(nearby_point_gdf) > 0:
+            # Calculate distance to each nearby gdf point
+            dists = [node_point.distance(intersection) for intersection in nearby_point_gdf['geometry']]
+            # Identify shortest distance
+            nearest = np.argmin(dists)
+            # Get the record for the closest gdf point
+            closest_gdf_point = nearby_point_gdf.iloc[nearest]
+            # Merge existing node and gdf point attributes (prioritizes existing node values)
+            gdf_point_dict = closest_gdf_point.to_dict()
+            gdf_point_dict.update(data)        
+            # Write all attributes back to graph nodes
+            for key, value in gdf_point_dict.items():
+                G.node[i][key] = value    
+    return G
+
+def reverse_linestring(linestring):
+    """Reverses the direction of shapely linestring
+    """
+    return LineString(line.coords[::-1])
+
+def split_self_loops(G, make_two_way=True):
+    """Splits self-looping edges into three parts so that loop ends are differentiable
+    
+    Useful for differentiating between turns into either side
+    of a self-looping edge. Also useful for differentiating
+    directionality around a loop.
+    
+    Assumes that linestring geometries are stored in a field called 'geometry' for each edge.
+    Assumes that float lengths are stored in a field called 'length' for each edge.
+    Assumes that boolean one way status is stored in a field called 'oneway' for each edge.
+    """
+    # Operate on a copy of the graph
+    G = G.copy()
+    
+    # Identify self-loop edges
+    self_loop_edges = list(G.selfloop_edges(data=True))
+    
+    # Iterate through each self-loop
+    for u, v in self_loop_edges:
+        for key in list(G[u][v].keys()):
+            # Collect attributes
+            edge_attributes = G[u][v][key]
+            
+            # Get edge geometry
+            edge_geometry = edge_attributes['geometry']
+            
+            # Split line into thirds
+            third_length = edge_geometry.length / 3
+            edge_geometry_i, edge_geometry_j, edge_geometry_k = split_line_at_dists(
+                edge_geometry, [third_length, third_length * 2])
+            
+            # Get points for new nodes at ends of first and second sections
+            _, x_point = endpoints(edge_geometry_i)
+            _, y_point = endpoints(edge_geometry_j)
+            
+            # Insert two new nodes into the graph
+            a_node_name = f'{u}a'
+            G.add_node(a_node_name, geometry=x_point)
+            b_node_name = f'{u}b'
+            G.add_node(b_node_name, geometry=y_point)
+            
+            def insert_edge_section(start, end, geom):
+                G.add_edge(start, end, 0, **edge_attributes)
+                G[start][end][0]['geometry'] = geom
+                G[start][end][0]['length'] = G[start][end][0]['geometry'].length
+            
+            # Insert edge sections into the graph           
+            insert_edge_section(u, a_node_name, edge_geometry_i)
+            insert_edge_section(a_node_name, b_node_name, edge_geometry_j)
+            insert_edge_section(b_node_name, v, edge_geometry_k)
+                       
+            # If make two way, insert additional edge sections in the other direction
+            if make_two_way:
+                if not edge_attributes['oneway']:
+                    insert_edge_section(v, b_node_name, reverse_linestring(edge_geometry_k))
+                    insert_edge_section(b_node_name, a_node_name, reverse_linestring(edge_geometry_j))
+                    insert_edge_section(a_node_name, u, reverse_linestring(edge_geometry_i))
+                    
+            # Delete original edge
+            G.remove_edge(u, v, key)
+    
+    return G
+
+def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
+    """Apply a function to the data dictionary of all graph elements to produce a new data field.
+    
+    `function` must accept a single argument that is a dictionary of attributes and values
+    
+    If edges=True, function will be applied to edges.
+    If nodes=True, function will be applied to nodes.
+    """
+    if nodes:
+        # Iterate through nodes
+        for i, data in G.nodes(data=True):
+            G.node[i][new_field] = function(data)
+    if edges:
+        # Iterate through nodes
+        for u, v, key, data in G.edges(keys=True, data=True):
+            G[u][v][key][new_field] = function(data)
 
 
