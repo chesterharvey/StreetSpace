@@ -711,7 +711,7 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     return return_dataframe, unrouted_pairs
 
 def make_node_pairs_along_route(route):
-    """Converts a list of nodes into a list of tuples describing node pairs for edges along a route.
+    """Converts a list of nodes into a list of tuples for indexing edges along a route.
     """
     return list(zip(route[:-1], route[1:]))
 
