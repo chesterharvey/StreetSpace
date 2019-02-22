@@ -658,7 +658,7 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     
     # Define default summaries
     default_summaries = OrderedDict(
-        [('geometry',  (lambda x: MultiLineString(x) if len(x) > 0 else None, 'geometry')),
+        [('geometry', (lambda x: merge_ordered_lines([y for y in x if isinstance(y, LineString)]) if len(x) > 0 else None, 'geometry')),
          ('length', (lambda x: sum(x) if len(x) > 0 else np.inf, 'length'))])
     
     weight_summary = OrderedDict(
@@ -709,7 +709,12 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     # return_dataframe = return_dataframe[points_order + remaining]
     unrouted_pairs = [(i, x) for i, x in enumerate(routes) if isinstance(x, str)]
     return return_dataframe, unrouted_pairs
-    
+
+def make_node_pairs_along_route(route):
+    """Converts a list of nodes into a list of tuples describing node pairs for edges along a route.
+    """
+    return list(zip(route[:-1], route[1:]))
+
 
 def collect_route_attributes(route, G, summaries=None):
     """Collect attributes of edges along a route defined by nodes.
@@ -750,7 +755,7 @@ def collect_route_attributes(route, G, summaries=None):
         default_summaries.update(summaries)
 
     # Get data from edges along route
-    node_pairs = list(zip(route[:-1], route[1:]))
+    node_pairs = make_node_pairs_along_route(route)
     
     # Get edge data either from a graph or a dataframe
     if isinstance(G, MultiDiGraph):
