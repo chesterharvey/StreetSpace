@@ -750,7 +750,20 @@ def collect_route_attributes(route, G, summaries=None):
         default_summaries.update(summaries)
 
     # Get data from edges along route
-    route_data = [G.get_edge_data(u, v) for u,v, in list(zip(route[:-1], route[1:]))]    
+    node_pairs = list(zip(route[:-1], route[1:]))
+    
+    # Get edge data either from a graph or a dataframe
+    if isinstance(G, MultiDiGraph):
+        route_data = [G.get_edge_data(u, v) for u,v, in node_pairs]
+    elif isinstance(G, GeoDataFrame):
+        edges = G
+        def edge_data(edges, u, v):
+            try:            
+                return edges[(edges['u']==u) & (edges['v']==v)].iloc[0].to_dict()
+            except:
+                return {}
+        route_data = [{0: edge_data(edges, u, v)} for u, v, in node_pairs]
+    
     # Make a structured array to store collected attributes
     attribute_fields = dict(zip(summaries.keys(), ['object'] * len(summaries)))
     collected_attributes = empty_array(len(route_data), attribute_fields)
