@@ -741,7 +741,7 @@ def collect_route_attributes(route, G, summaries=None):
         products of the functions defined in the values of ``summaries``.
     """
     default_summaries = OrderedDict(
-        [('route',  (lambda x: MultiLineString([y for y in x if isinstance(y, LineString)]) if len(x) > 0 else None, 'geometry')),
+        [('route',  (lambda x: merge_ordered_lines([y for y in x if isinstance(y, LineString)]) if len(x) > 0 else None, 'geometry')),
          ('rt_len', (lambda x: sum(x) if len([y for y in x if isinstance(y, float)]) > 0 else np.inf, 'length'))])
 
     if not summaries:
@@ -1222,6 +1222,7 @@ def classify_turn_direction(relative_azimuth, straight_angle=20):
     elif (relative_azimuth > c) and (relative_azimuth < d):
         return 'left'
     
+
 def classify_turn_proximity(turn_directions):
     """Classify turn proximity based on a list of turn directions  
     """
