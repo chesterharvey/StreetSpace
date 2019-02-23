@@ -1418,4 +1418,69 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
         for u, v, key, data in G.edges(keys=True, data=True):
             G[u][v][key][new_field] = function(data)
 
+########### These functions deal with outputs from the Pandana package
+
+def build_routes_for_nearest_pois(nearest_pois, G):
+    """Build node sequences and route geometries for Pandana nearest_pois output
+
+    nearst_pois : GeoDataFrame output from Pandana `Network.nearest_pois` method
+
+    G : Networkx Graph with geometry attributes on edges
+    """
+    # Reset the index
+    nearest_pois = nearest_pois.reset_index()
+
+    # Identify number of POIs
+    poi_count = (len(nearest_pois.columns) - 1) // 2 # Subtract index column, divide by 2
+
+    # Make an empty numpy array to store route shapes and sequences
+    shape = (len(nearest_pois), poi_count * 2)
+    routes = np.full(shape, np.nan, dtype='object')
+    
+    # Iterate through the pois
+    for row in nearest_pois.itertuples():
+        for poi in range(1, poi_count + 1):
+            # Get route
+            O = row.index # Node  
+            D = row[1 + poi_count + poi] # Index column plus poi summaries plus column number
+            if not np.isnan(D):
+                # Calculate shortest path
+                route_seq = net.shortest_path(O, D)
+                # Store route sequence
+                routes[row.Index][poi - 1] = route_seq
+                # Get route geometry
+                _, summaries = collect_route_attributes(route_seq, G)
+                route_geom = summaries['route']
+                # Store route geometry
+                routes[row.Index][poi_count + poi - 1] = route_geom
+
+    # Convert routes array to a dataframe
+    seq_columns = [f'{x}_seq' for x in range(1, poi_count + 1)]
+    geom_columns = [f'{x}_geom' for x in range(1, poi_count + 1)]
+    routes_df = pd.DataFrame(routes, columns=(seq_columns + geom_columns))
+
+    # Add routes to nearest_pois dataframe
+    nearest_pois_routes = pd.concat([nearest_pois, routes_df], axis=1)
+    
+    return nearest_pois_routes
+
+def count_routes_along_edges(edge_sequences, edges, keep_all_edges=False):
+    """Count the routes that traverse each network edge
+
+    edge_sequences : Iterable of edge sequences (arrays) from `build_routes_for_nearest_pois`
+
+    edges : GeoDataFrame of edges
+
+    keep_all_edges : If True, all edges returned, even if no routes traverse them
+        Default=False
+    """
+    pairs = [pair for sequence in edge_sequences for pair in make_node_pairs_along_route(sequence)]
+    pairs = pd.DataFrame(pairs, columns=['u','v'])
+    edge_counts = pairs.groupby(['u','v']).size().reset_index(name='route_count')
+    if keep_all_edges:
+        how = 'outer'
+    else:
+        how='inner'
+    edge_counts = edges.merge(edge_counts, on=['u','v'], how=how)
+    return edge_counts
 
