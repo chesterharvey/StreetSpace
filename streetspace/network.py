@@ -1425,7 +1425,7 @@ def build_routes_for_nearest_pois(nearest_pois, G):
 
     nearst_pois : GeoDataFrame output from Pandana `Network.nearest_pois` method
 
-    G : Networkx Graph with geometry attributes on edges
+    G : Networkx Graph with geometry attributes on edges OR GeoPandas GeoDataFrame with 'u', 'v', and 'geometry' fields
     """
     # Reset the index
     nearest_pois = nearest_pois.reset_index()
