@@ -1420,8 +1420,10 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
 
 ########### These functions deal with outputs from the Pandana package
 
-def build_routes_for_nearest_pois(nearest_pois, G):
+def build_routes_for_nearest_pois(net, nearest_pois, G):
     """Build node sequences and route geometries for Pandana nearest_pois output
+
+    net : Pandana Network
 
     nearst_pois : GeoDataFrame output from Pandana `Network.nearest_pois` method
 
