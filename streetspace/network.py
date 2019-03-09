@@ -1214,7 +1214,7 @@ def classify_turns(G, in_edges, out_edges, straight_angle=20, edge_level=None):
                 # Azimuth at the out edge start
                 out_azimuth = azimuth_at_distance(out_geom, 0)
                 # relative_azimuth = out_azimuth - in_azimuth
-                relative_azimuth = azimuth_difference(out_azimuth, in_azimuth, directional='polar')
+                relative_azimuth = azimuth_difference(in_azimuth, out_azimuth, directional='polar')
                 relative_azimuths.append(relative_azimuth)
                 out_azimuths.append(out_azimuth)
 
@@ -1265,13 +1265,13 @@ def classify_turn_direction(relative_azimuth, straight_angle=20):
     """Classify turn directions based on a relative azimuth     
     """
     if (relative_azimuth < straight_angle) or (relative_azimuth > (360 - straight_angle)):
-        return 'U'
-    elif (relative_azimuth >= straight_angle) and (relative_azimuth <= (180 - straight_angle)):
-        return 'right'
-    elif (relative_azimuth > (180 - straight_angle)) and (relative_azimuth < (180 + straight_angle)):
         return 'straight'
-    elif (relative_azimuth >= (180 + straight_angle)) and (relative_azimuth <= (360 - straight_angle)):
+    elif (relative_azimuth >= straight_angle) and (relative_azimuth <= (180 - straight_angle)):
         return 'left'
+    elif (relative_azimuth > (180 - straight_angle)) and (relative_azimuth < (180 + straight_angle)):
+        return 'U'
+    elif (relative_azimuth >= (180 + straight_angle)) and (relative_azimuth <= (360 - straight_angle)):
+        return 'right'
     
 
 def classify_turn_proximity(turn_directions):
