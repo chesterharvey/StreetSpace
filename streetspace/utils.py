@@ -27,6 +27,47 @@ def listify(x):
     else:
         return [x]
 
+
+def unlistify(x):
+    """Unpacks single-object lists into their internal object
+
+    If list is longer than one, returns original list
+
+    Parameters
+    ----------
+    x: :obj:`list`
+        Input list
+    
+    Returns
+    ----------
+    :obj:`list` or other non-list object
+        If ``len(x) == 1``, returns the single object in ``x``.
+        Otherwise, returns ``x``
+    """
+    if isinstance(x, list):
+        if len(x) == 1:
+            return x[0]
+    return x
+
+
+def unpack_nested_lists(x):
+    """Unpacks listed lists and non-lists into a single, unnested list
+    
+    Parameters
+    ----------
+    x :obj:`list`
+        List containing lists and non-lists
+    
+    Returns
+    ----------
+    :obj:`list`
+        Any lists within ``x`` will be unpacked as individual items
+        alongside all the other items within ``x``
+
+    """
+    return [i if isinstance(j, list) else j for j in x for i in j]
+
+
 def bash_command(command, verbose=False):
     """
     Executes a bash command passed as a string

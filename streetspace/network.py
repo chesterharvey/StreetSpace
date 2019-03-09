@@ -1182,11 +1182,21 @@ def explode_node(G, node):
     return in_edges, out_edges
 
 
-def classify_turns(G, in_edges, out_edges, straight_angle=20):
+def classify_turns(G, in_edges, out_edges, straight_angle=20, edge_level=None):
     """Classify turning movements between 'in' and 'out' edges at intersections
     """
-    # Only proceed if there are 'in' edges
+    # Only proceed if there are 'out' edges
     if len(out_edges) > 0:
+        
+        # Summarize max and min of levels for all edges related to this intersection
+        if edge_level:
+            # In levels
+            levels = [G[in_u][out_v][out_key][edge_level] for in_u, out_v, out_key in in_edges]
+            # Out levels
+            levels.extend([G[in_u][out_v][out_key][edge_level] for in_u, out_v, out_key in out_edges])
+            max_level = max(levels)
+            min_level = min(levels)
+
         # Iterate through in edges
         for in_edge in in_edges:
             in_u, in_v, in_key = in_edge
@@ -1196,48 +1206,71 @@ def classify_turns(G, in_edges, out_edges, straight_angle=20):
             in_azimuth = azimuth_at_distance(in_geom, in_geom_len) # Azimuth at the entering line's end
 
             # Get the azimuths of each 'out' edge
-            out_edge_azimuths = []
+            out_azimuths = []
+            relative_azimuths = []
             for out_edge in out_edges:
                 out_u, out_v, out_key = out_edge            
                 out_geom = G[out_u][out_v][out_key]['geometry']
                 # Azimuth at the out edge start
                 out_azimuth = azimuth_at_distance(out_geom, 0)
-                relative_azimuth = out_azimuth - in_azimuth
-                out_edge_azimuths.append(relative_azimuth)
+                # relative_azimuth = out_azimuth - in_azimuth
+                relative_azimuth = azimuth_difference(out_azimuth, in_azimuth, directional='polar')
+                relative_azimuths.append(relative_azimuth)
+                out_azimuths.append(out_azimuth)
 
-            # Sort edges and azimuths by azimuth
-            try:
-                out_edges, out_edge_azimuths = zip(*sorted(zip(out_edges, out_edge_azimuths), key=lambda x: x[1]))
-            except:
-                print(out_edges, out_edge_azimuths)
+            # Sort edges and azimuths by relative azimuth
+            out_edges, out_azimuths, relative_azimuths = zip(*sorted(zip(out_edges, out_azimuths, relative_azimuths), key=lambda x: x[2]))
 
             # Classify turn directions
-            turn_directions = [classify_turn_direction(x, straight_angle) for x in out_edge_azimuths]
+            turn_directions = [classify_turn_direction(x, straight_angle) for x in relative_azimuths]
 
             # Classify turn proximity
-            turns_proximities = classify_turn_proximity(turn_directions)
+            turn_proximities = classify_turn_proximity(turn_directions)
 
-            # Assign turn label to intersection edges
-            for (out_u, _, _), turn_direction, turn_proximity in zip(out_edges, turn_directions, turns_proximities):
-                G[in_v][out_u][0]['turn_direction'] = turn_direction
-                G[in_v][out_u][0]['turn_proximity'] = turn_proximity
-                
+            # Classify turns across other other traffic
+            turn_acrosses = classify_turn_acrosses(turn_directions, turn_proximities)
+
+            # Calculate changes in level across turns, if specified
+            if edge_level:
+                in_levels, out_levels, delta_levels = classify_turn_level(G, in_edge, out_edges, edge_level)
+            
+            for i, (out_u, _, _) in enumerate(out_edges):
+                G[in_v][out_u][0]['turn_direction'] = turn_directions[i]
+                G[in_v][out_u][0]['in_azimuth'] = in_azimuth
+                G[in_v][out_u][0]['out_azimuth'] = out_azimuths[i]
+                G[in_v][out_u][0]['turn_azimuth'] = relative_azimuths[i]
+                G[in_v][out_u][0]['turn_proximity'] = turn_proximities[i]
+                G[in_v][out_u][0]['turn_across'] = turn_acrosses[i]
+                if edge_level:
+                    G[in_v][out_u][0]['in_level'] = in_levels[i]
+                    G[in_v][out_u][0]['out_level'] = out_levels[i]
+                    G[in_v][out_u][0]['delta_levels'] = delta_levels[i]
+                    G[in_v][out_u][0]['min_level'] = min_level
+                    G[in_v][out_u][0]['max_level'] = max_level
+
+
+def classify_turn_level(G, in_edge, out_edges, edge_level):
+    # Gather in level
+    in_u, in_v, in_key = in_edge
+    in_level = G[in_u][in_v][in_key][edge_level]
+    # Gather out levels
+    out_levels = [G[in_u][out_v][out_key][edge_level] for in_u, out_v, out_key in out_edges]
+    # Calculate differences
+    in_levels = [in_level] * len(out_levels)
+    delta_levels = [out_level - in_level for out_level, in_level in zip(out_levels, in_levels)]
+    return in_levels, out_levels, delta_levels
+
 
 def classify_turn_direction(relative_azimuth, straight_angle=20):
     """Classify turn directions based on a relative azimuth     
     """
-    a, b, c, d = (
-        0 + straight_angle, 
-        180 - straight_angle, 
-        180 + straight_angle, 
-        360 - straight_angle)
-    if (relative_azimuth > d) or (relative_azimuth < a):
+    if (relative_azimuth < straight_angle) or (relative_azimuth > (360 - straight_angle)):
         return 'U'
-    elif (relative_azimuth > a) and (relative_azimuth < b):
+    elif (relative_azimuth >= straight_angle) and (relative_azimuth <= (180 - straight_angle)):
         return 'right'
-    elif (relative_azimuth > b) and (relative_azimuth < c):
+    elif (relative_azimuth > (180 - straight_angle)) and (relative_azimuth < (180 + straight_angle)):
         return 'straight'
-    elif (relative_azimuth > c) and (relative_azimuth < d):
+    elif (relative_azimuth >= (180 + straight_angle)) and (relative_azimuth <= (360 - straight_angle)):
         return 'left'
     
 
@@ -1246,7 +1279,7 @@ def classify_turn_proximity(turn_directions):
     """
     # Enumerate turns
     enum_turns = list(enumerate(turn_directions))
-    # Identify U-turns
+    # Identify U-turns; these are always near
     u_turns = {i: 'near' for i, x in enum_turns if x == 'U'}
     # Remove U-turns
     enum_turns = [(i, x) for i, x in enum_turns if x != 'U']
@@ -1268,7 +1301,23 @@ def classify_turn_proximity(turn_directions):
     return turn_proximities
 
 
-def create_intersection_edges(G, straight_angle=20):
+def classify_turn_acrosses(turn_directions, turn_proximities):
+    """Classify turns across traffic (near right turns and straights without an available right)
+    """
+    turn_acrosses = []
+    for turn_direction, turn_proximity in zip(turn_directions, turn_proximities):
+        # No cross if it's a near right turn
+        if (turn_direction == 'right') and (turn_proximity == 'near'):
+            turn_acrosses.append(False)
+        # No cross if it's straight and there isn't a right turn available
+        elif (turn_direction == 'straight') and ('right' not in turn_directions):
+            turn_acrosses.append(False)
+        else:
+            turn_acrosses.append(True)
+    return turn_acrosses
+
+
+def create_intersection_edges(G, straight_angle=20, level_field=None):
     """Add non-geometric edges to represent turns at intersections
     """
     G = G.copy()
@@ -1279,7 +1328,7 @@ def create_intersection_edges(G, straight_angle=20):
         # Explode the node into edges
         in_edges, out_edges = explode_node(G, node)
         # Classify turns on edges
-        classify_turns(G, in_edges, out_edges, straight_angle=straight_angle)
+        classify_turns(G, in_edges, out_edges, straight_angle=straight_angle, edge_level=level_field)
     return G
 
 
@@ -1297,6 +1346,7 @@ def gdf_edges_to_graph(gdf, twoway_column='oneway', twoway_id='False', search_di
     # Build graph
     G = ox.gdfs_to_graph(nodes, edges)
     return G
+
 
 def attach_gdf_point_attributes_to_graph_nodes(G, point_gdf, search_distance=1):
     """Attaches attributes from gpf points the the closest graph node within a search distance
@@ -1333,10 +1383,12 @@ def attach_gdf_point_attributes_to_graph_nodes(G, point_gdf, search_distance=1):
                 G.node[i][key] = value    
     return G
 
+
 def reverse_linestring(linestring):
     """Reverses the direction of shapely linestring
     """
-    return LineString(line.coords[::-1])
+    return LineString(linestring.coords[::-1])
+
 
 def split_self_loops(G, make_two_way=True):
     """Splits self-looping edges into three parts so that loop ends are differentiable
@@ -1353,8 +1405,13 @@ def split_self_loops(G, make_two_way=True):
     G = G.copy()
     
     # Identify self-loop edges
-    self_loop_edges = list(G.selfloop_edges(data=True))
-    
+    self_loop_edges = G.selfloop_edges(data=True)
+    # Make sure they're unique
+    self_loop_edges = list(set(self_loop_edges))
+
+    # Initiate list to store edges to remove
+    edges_to_remove = []
+
     # Iterate through each self-loop
     for u, v in self_loop_edges:
         for key in list(G[u][v].keys()):
@@ -1370,14 +1427,14 @@ def split_self_loops(G, make_two_way=True):
                 edge_geometry, [third_length, third_length * 2])
             
             # Get points for new nodes at ends of first and second sections
-            _, x_point = endpoints(edge_geometry_i)
-            _, y_point = endpoints(edge_geometry_j)
+            _, i_point = endpoints(edge_geometry_i)
+            _, j_point = endpoints(edge_geometry_j)
             
             # Insert two new nodes into the graph
             a_node_name = f'{u}a'
-            G.add_node(a_node_name, geometry=x_point)
+            G.add_node(a_node_name, geometry=i_point, x=i_point.x, y=i_point.y)
             b_node_name = f'{u}b'
-            G.add_node(b_node_name, geometry=y_point)
+            G.add_node(b_node_name, geometry=j_point, x=j_point.x, y=j_point.y)
             
             def insert_edge_section(start, end, geom):
                 G.add_edge(start, end, 0, **edge_attributes)
@@ -1396,10 +1453,15 @@ def split_self_loops(G, make_two_way=True):
                     insert_edge_section(b_node_name, a_node_name, reverse_linestring(edge_geometry_j))
                     insert_edge_section(a_node_name, u, reverse_linestring(edge_geometry_i))
                     
-            # Delete original edge
-            G.remove_edge(u, v, key)
+            # Mark the original edge for removal
+            edges_to_remove.append((u, v, key))
+
+    # Delete original edges
+    for u, v, key in edges_to_remove:
+        G.remove_edge(u, v, key)
     
     return G
+
 
 def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
     """Apply a function to the data dictionary of all graph elements to produce a new data field.
@@ -1414,9 +1476,10 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
         for i, data in G.nodes(data=True):
             G.node[i][new_field] = function(data)
     if edges:
-        # Iterate through nodes
+        # Iterate through edges
         for u, v, key, data in G.edges(keys=True, data=True):
             G[u][v][key][new_field] = function(data)
+
 
 ########### These functions deal with outputs from the Pandana package
 

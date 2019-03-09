@@ -1220,25 +1220,50 @@ def normalize_azimuth(azimuth, zero_center=False):
 
 def azimuth_difference(azimuth_a, azimuth_b, directional=True):
     """Find the difference between two azimuths specifed in degrees.
+       
+    If ``directional=True`` (default), will produce a difference 
+    between 0 and 180 degrees that ignores sign but accounts for
+    inverted differences in orientation.
     
-    If ``directional=False``, will also examine difference if one
-    azimuth is rotated 180 degrees and will return the smaller
-    of the two differences.   
+    If ``directional=False`` or ``directional='inverse'``, will ingore 
+    inverted differences in rotation by also calculating the difference 
+    if one azimuth is rotated 180 degrees and returning the smaller of 
+    the two differences.
+    
+    If ``directional='polar'``, will produce a difference between
+    0 and 360 degrees, accounting for differences past 180 degrees.
+    
+    If ``directional='signed'``, will produce a difference between -180
+    and 180, accounting for the sign of the difference.
     """
-    azimuth_a = normalize_azimuth(azimuth_a, zero_center=True)
-    azimuth_b = normalize_azimuth(azimuth_b, zero_center=True)
-    def _diff(a, b):
+    
+    def unsigned_difference(a, b):
         difference = a-b
         if difference > 180:
             difference -= 360
         if difference < -180:
             difference += 360
         return abs(difference)
-    difference = _diff(azimuth_a, azimuth_b)   
-    if not directional:
-        rotated_difference = _diff(azimuth_a + 180, azimuth_b)
-        difference = min([difference, rotated_difference])
-    return difference
+    
+    if directional is True:  
+        azimuth_a = normalize_azimuth(azimuth_a, zero_center=True)
+        azimuth_b = normalize_azimuth(azimuth_b, zero_center=True)
+        return unsigned_difference(azimuth_a, azimuth_b)
+    
+    elif (directional is False) or (directional == 'inverse'):
+        azimuth_a = normalize_azimuth(azimuth_a, zero_center=True)
+        azimuth_b = normalize_azimuth(azimuth_b, zero_center=True)
+        return min(
+            [unsigned_difference(azimuth_a, azimuth_b), 
+             unsigned_difference(azimuth_a + 180, azimuth_b)])
+    
+    elif directional == 'polar':        
+        return normalize_azimuth((azimuth_b - azimuth_a))
+    
+    elif directional == 'signed':        
+        azimuth_a = normalize_azimuth(azimuth_a)
+        azimuth_b = normalize_azimuth(azimuth_b)
+        return azimuth_b - azimuth_a
 
 
 def closest_point_along_line(point, line, return_linear_reference=False):
