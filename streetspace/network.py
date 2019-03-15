@@ -1477,8 +1477,12 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
             G.node[i][new_field] = function(data)
     if edges:
         # Iterate through edges
-        for u, v, key, data in G.edges(keys=True, data=True):
-            G[u][v][key][new_field] = function(data)
+        if G.is_multigraph():
+            for u, v, key, data in G.edges(keys=True, data=True):
+                G[u][v][key][new_field] = function(data)
+        else:
+            for u, v, data in G.edges(data=True):
+                G[u][v][new_field] = function(data)
 
 
 ########### These functions deal with outputs from the Pandana package
