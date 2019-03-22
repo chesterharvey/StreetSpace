@@ -1463,7 +1463,7 @@ def split_self_loops(G, make_two_way=True):
     return G
 
 
-def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
+def graph_field_calculate(G, function, new_field, edges=True, nodes=True, id=False, inplace=True):
     """Apply a function to the data dictionary of all graph elements to produce a new data field.
     
     `function` must accept a single argument that is a dictionary of attributes and values
@@ -1471,18 +1471,35 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True):
     If edges=True, function will be applied to edges.
     If nodes=True, function will be applied to nodes.
     """
+    if not inplace:
+        G = G.copy
+
     if nodes:
         # Iterate through nodes
         for i, data in G.nodes(data=True):
-            G.node[i][new_field] = function(data)
+            if id:
+                G.node[i][new_field] = function(data, i)
+            else:
+                G.node[i][new_field] = function(data)
     if edges:
         # Iterate through edges
         if G.is_multigraph():
-            for u, v, key, data in G.edges(keys=True, data=True):
-                G[u][v][key][new_field] = function(data)
+            if id:
+                for u, v, key, data in G.edges(keys=True, data=True):
+                    G[u][v][key][new_field] = function(data, u, v, key)
+            else:
+                for u, v, key, data in G.edges(keys=True, data=True):
+                    G[u][v][key][new_field] = function(data)
         else:
-            for u, v, data in G.edges(data=True):
-                G[u][v][new_field] = function(data)
+            if id:
+                for u, v, data in G.edges(data=True):
+                    G[u][v][new_field] = function(data, u, v)
+            else:
+                for u, v, data in G.edges(data=True):
+                    G[u][v][new_field] = function(data)
+
+    if not inplace:
+        return G
 
 
 ########### These functions deal with outputs from the Pandana package
