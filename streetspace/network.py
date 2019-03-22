@@ -1470,6 +1470,14 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True, id=Fal
     
     If edges=True, function will be applied to edges.
     If nodes=True, function will be applied to nodes.
+
+    If id=True, node and edge ids will be passed to the function along with the data dictionary:
+        for nodes: (i, data)
+        for edges: (u, v, data) or (u, v, key, data)
+    If id=False, only the data dictionary will be passed
+
+    If inplace=True, directly updates G
+    if inplace=False, returns copy of G
     """
     if not inplace:
         G = G.copy
@@ -1478,7 +1486,7 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True, id=Fal
         # Iterate through nodes
         for i, data in G.nodes(data=True):
             if id:
-                G.node[i][new_field] = function(data, i)
+                G.node[i][new_field] = function(i, data)
             else:
                 G.node[i][new_field] = function(data)
     if edges:
@@ -1486,14 +1494,14 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True, id=Fal
         if G.is_multigraph():
             if id:
                 for u, v, key, data in G.edges(keys=True, data=True):
-                    G[u][v][key][new_field] = function(data, u, v, key)
+                    G[u][v][key][new_field] = function(u, v, key, data)
             else:
                 for u, v, key, data in G.edges(keys=True, data=True):
                     G[u][v][key][new_field] = function(data)
         else:
             if id:
                 for u, v, data in G.edges(data=True):
-                    G[u][v][new_field] = function(data, u, v)
+                    G[u][v][new_field] = function(u, v, data)
             else:
                 for u, v, data in G.edges(data=True):
                     G[u][v][new_field] = function(data)
