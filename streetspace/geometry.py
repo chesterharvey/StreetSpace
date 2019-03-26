@@ -1631,17 +1631,17 @@ def merge_multilinestring(multilinestring, tolerance):
                 # Only try to merge edges that are not the same
                 if i != j:
                     # Iterate through their endpoints
-                    for i_end, i_point in zip(('u','v'), sp.endpoints(i_edge)):
-                        for j_end, j_point in zip(('u','v'), sp.endpoints(j_edge)):
+                    for i_end, i_point in zip(('u','v'), endpoints(i_edge)):
+                        for j_end, j_point in zip(('u','v'), endpoints(j_edge)):
                             # See if the points are the same
                             if i_point.distance(j_point) <= tolerance:
                                 # If the lines are headed the same way into their shared vertex, flip one of them
                                 if i_end == j_end:
                                     # opposite directions
                                     # Flip one of the lines
-                                    i_edge = sp.reverse_linestring(i_edge)
+                                    i_edge = reverse_linestring(i_edge)
                                 # Merge the two lines
-                                merged_edge = sp.merge_ordered_lines([i_edge, j_edge])
+                                merged_edge = merge_ordered_lines([i_edge, j_edge])
                                 # Replace the first edge with the new merged edge
                                 edges[i] = merged_edge
                                 # Remove the other original edge
