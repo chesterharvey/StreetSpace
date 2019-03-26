@@ -1608,3 +1608,51 @@ def hexagon_grid(gdf, radius):
 	hexagons = gpd.GeoDataFrame(geometry=hexagons, crs=gdf.crs) 
 
 	return hexagons
+
+
+def merge_multilinestring(multilinestring, tolerance):
+    """Function to merge all linestrings making up a multilinestring.
+    
+    Connects linestrings with endpoints that are within the `tolerance` distance of one another.
+    
+    Automatically flips the direction of connecting linestrings so they are consistent.
+    
+    If all linestrings are connectable within the tolerance, returns a single linestring
+    
+    If not all linestrings are connectable, returns MultiLineString made up of both connected
+        and unconnected linestrings.
+    """
+    # Explode multilinestring into individual linestring edges
+    edges = [edge for edge in multilinestring]
+    # Iterate through edges while there is still more than one edge
+    while len(edges) > 1:
+        for i, i_edge in enumerate(edges):
+            for j, j_edge in enumerate(edges):
+                # Only try to merge edges that are not the same
+                if i != j:
+                    # Iterate through their endpoints
+                    for i_end, i_point in zip(('u','v'), sp.endpoints(i_edge)):
+                        for j_end, j_point in zip(('u','v'), sp.endpoints(j_edge)):
+                            # See if the points are the same
+                            if i_point.distance(j_point) <= tolerance:
+                                # If the lines are headed the same way into their shared vertex, flip one of them
+                                if i_end == j_end:
+                                    # opposite directions
+                                    # Flip one of the lines
+                                    i_edge = sp.reverse_linestring(i_edge)
+                                # Merge the two lines
+                                merged_edge = sp.merge_ordered_lines([i_edge, j_edge])
+                                # Replace the first edge with the new merged edge
+                                edges[i] = merged_edge
+                                # Remove the other original edge
+                                edges.pop(j)
+                                # Run the loop again to merge more edges
+                                continue
+        # If there are no more edges to merge, break the loop
+        break
+    # Return a single linestring if applicable
+    if len(edges) == 1:
+        return edges[0]
+    # Otherwise, return as a multilinestring
+    else:
+        return MultiLineString(edges)
