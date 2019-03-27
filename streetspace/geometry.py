@@ -20,7 +20,7 @@ from shapely.geometry import (Point, MultiPoint, LineString, MultiLineString,
 from math import radians, cos, sin, asin, sqrt, ceil
 from geopandas import GeoDataFrame
 from rtree import index
-from itertools import cycle
+from itertools import cycle, groupby
 from pprint import pprint
 from time import time
 
@@ -1478,7 +1478,7 @@ def merge_ordered_lines(lines):
     coords = [pair for pairs in lines for pair in zip(*pairs.coords.xy)]
     
     # Remove sequentially-redundant coordinates
-    coords = remove_sequential_duplicates(coords)
+    coords = [k for k, g in groupby(coords)]
     
     # Construct a line from these coordinates
     merged_line = LineString(coords)
