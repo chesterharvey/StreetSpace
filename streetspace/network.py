@@ -1384,12 +1384,6 @@ def attach_gdf_point_attributes_to_graph_nodes(G, point_gdf, search_distance=1):
     return G
 
 
-def reverse_linestring(linestring):
-    """Reverses the direction of shapely linestring
-    """
-    return LineString(linestring.coords[::-1])
-
-
 def split_self_loops(G, make_two_way=True):
     """Splits self-looping edges into three parts so that loop ends are differentiable
     

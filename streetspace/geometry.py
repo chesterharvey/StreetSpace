@@ -1656,3 +1656,9 @@ def merge_multilinestring(multilinestring, tolerance):
     # Otherwise, return as a multilinestring
     else:
         return MultiLineString(edges)
+
+
+def reverse_linestring(linestring):
+    """Reverses the direction of shapely linestring
+    """
+    return LineString(linestring.coords[::-1])
