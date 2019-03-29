@@ -1622,40 +1622,81 @@ def merge_multilinestring(multilinestring, tolerance):
     If not all linestrings are connectable, returns MultiLineString made up of both connected
         and unconnected linestrings.
     """
+    
+    def _find_similar_endpoints(i_edge, j_edge, tolerance):
+        # Iterate through combinations of endpoints           
+        i_endpoints = zip(('u','v'), endpoints(i_edge))
+        j_endpoints = zip(('u','v'), endpoints(j_edge))
+        for i_end, i_point in i_endpoints:
+            for j_end, j_point in j_endpoints:
+                # See if the points are the same
+                if i_point.distance(j_point) <= tolerance:
+                    # If the lines are headed the same way into their shared vertex, flip one of them
+                    if i_end == 'v' and j_end == 'u':
+                        merged_edge = merge_ordered_lines([i_edge, j_edge])
+                    elif j_end == 'v' and i_end == 'u':
+                        merged_edge = merge_ordered_lines([j_edge, i_edge])
+                    elif i_end == 'v' and j_end == 'v':
+                        # Flip j
+                        j_edge = reverse_linestring(j_edge)
+                        merged_edge = merge_ordered_lines([i_edge, j_edge])
+                    elif i_end == 'u' and j_end == 'u':
+                        # Flip i
+                        i_edge = reverse_linestring(i_edge)
+                        merged_edge = merge_ordered_lines([i_edge, j_edge])
+                    # Return the merged line
+                    return merged_edge
+        # Otherwise, return nothing
+        return None
+
+    def _merge_with_connecting_edge(remaining_edges, tolerance):
+        first_edge = remaining_edges[0]
+        # If there are a lot of remaining edges, use a spatial index
+        if len(remaining_edges) > 4:
+            # Initiate an rtree index to find nearby edges
+            idx = index.Index()
+            # Make a spatial index of remaining edges
+            idx = index.Index()
+            for i, edge in enumerate(remaining_edges):
+                idx.insert(i, edge.bounds)
+            # Identify edges that are nearby the first edge
+            nearby_edges = set(idx.intersection(first_edge.buffer(tolerance * 1.1).bounds))
+        # Otherwise, just list all the edge indices
+        else:
+            nearby_edges = set(range(len(remaining_edges)))
+        # Remove the first edge from the list (don't want to connect it to itself)
+        nearby_edges.discard(0)
+        # Iterate through the nearby edges until if finds something
+        for i in nearby_edges: 
+            # Try to find similar endpoints with the first edge
+            merged_edge = _find_similar_endpoints(
+                first_edge, remaining_edges[i], tolerance)
+            if merged_edge:
+                return merged_edge, i
+        # If nothing connects, return nothing
+        return None, None
+    
     # Explode multilinestring into individual linestring edges
-    edges = [edge for edge in multilinestring]
+    remaining_edges = [edge for edge in multilinestring]   
+    standalone_edges = []
     # Iterate through edges while there is still more than one edge
-    while len(edges) > 1:
-        for i, i_edge in enumerate(edges):
-            for j, j_edge in enumerate(edges):
-                # Only try to merge edges that are not the same
-                if i != j:
-                    # Iterate through their endpoints
-                    for i_end, i_point in zip(('u','v'), endpoints(i_edge)):
-                        for j_end, j_point in zip(('u','v'), endpoints(j_edge)):
-                            # See if the points are the same
-                            if i_point.distance(j_point) <= tolerance:
-                                # If the lines are headed the same way into their shared vertex, flip one of them
-                                if i_end == j_end:
-                                    # opposite directions
-                                    # Flip one of the lines
-                                    i_edge = reverse_linestring(i_edge)
-                                # Merge the two lines
-                                merged_edge = merge_ordered_lines([i_edge, j_edge])
-                                # Replace the first edge with the new merged edge
-                                edges[i] = merged_edge
-                                # Remove the other original edge
-                                edges.pop(j)
-                                # Run the loop again to merge more edges
-                                continue
-        # If there are no more edges to merge, break the loop
-        break
-    # Return a single linestring if applicable
-    if len(edges) == 1:
-        return edges[0]
-    # Otherwise, return as a multilinestring
+    while len(remaining_edges) > 0:           
+        # Merge the first remaining edge with a connecting edge
+        merged_edge, i = _merge_with_connecting_edge(remaining_edges, tolerance) 
+        if merged_edge:
+            # Replace the first edge with the new merged edge
+            remaining_edges[0] = merged_edge
+            # Remove the other original edge
+            remaining_edges.pop(i)
+        else:
+            # If nothing merged, move original edge to the list of standalone edges
+            standalone_edges.append(remaining_edges[0])
+            remaining_edges.pop(0)
+    # Return either a multilinestring or a single linestring
+    if len(standalone_edges) > 1:
+        return MultiLineString(standalone_edges)
     else:
-        return MultiLineString(edges)
+        return standalone_edges[0]
 
 
 def reverse_linestring(linestring):
