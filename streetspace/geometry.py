@@ -1703,3 +1703,13 @@ def reverse_linestring(linestring):
     """Reverses the direction of shapely linestring
     """
     return LineString(linestring.coords[::-1])
+
+
+def standardize_geometry_column(gdf, current_geom_column):
+    """Converts the name of a gdf's geometry column to the standard 'geometry'
+    """
+    geometry = gdf[current_geom_column].tolist()
+    crs = gdf.crs
+    gdf = gdf.drop(columns=[current_geom_column])
+    gdf = gpd.GeoDataFrame(gdf, geometry=geometry, crs=crs)
+    return gdf
