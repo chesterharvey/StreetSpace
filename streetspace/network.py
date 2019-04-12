@@ -9,6 +9,7 @@ import numpy as np
 import os
 import shutil
 import pathlib
+import re
 from rtree import index
 from networkx import Graph, DiGraph, MultiGraph, MultiDiGraph
 from time import time
