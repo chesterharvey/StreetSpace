@@ -1503,6 +1503,120 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True, id=Fal
     if not inplace:
         return G
 
+
+def _length_based_seconds(data, seconds, assumed_speed):
+    if 'geometry' in data:
+        try:
+            length = data['geometry'].length
+            # Divide length by 4.5 meters / second (approx. 10 mph)
+            seconds += (length / 4.5)
+        except:
+            seconds += 0
+    return seconds
+
+
+def _key_lookup(attribute, lookup_dict, regex):
+    """
+    attribute is the value stored on the edge
+    
+    lookup dict keys relate to attributes
+    
+    lookup dict values are weights corresponding to attributes
+    """
+    
+    # make the attribute into a list if it isn't already
+    attributes = sp.listify(attribute)
+    
+    # Search through the lookup dictionary in order
+    for key, value in lookup_dict.items():
+        
+        # Search based on a string-type key
+        if isinstance(key, str):
+            # Force all attributes to be strings
+            attributes = [str(x) for x in attributes]
+            if regex:
+                pattern = re.compile(key)
+                if any([pattern.search(attribute) for attribute in attributes]):
+                    return lookup_dict[key]
+            else:
+                if any([key == attribute for attribute in attributes]):
+                    return lookup_dict[key]
+        
+        # See if the key is a range
+        elif isinstance(key, range):
+            try:
+                if any([attribute in key for attribute in attributes]):
+                    return lookup_dict[key]
+            except:
+                continue
+        
+        # Otherwise, look for exact matches
+        else:
+            try:
+                if any([key == attribute for attribute in attributes]):
+                    return lookup_dict[key]
+            except:
+                continue
+
+
+def _multiply_seconds(data, seconds, attribute, lookup_dict, regex):
+    # NOTE: Only examines the first highway tag if there are multiple
+    if attribute in data:
+        # Retrieve weight
+        weight = _key_lookup(data[attribute], lookup_dict, regex)
+        if weight:
+            # Multiply seconds by weight
+            seconds *= weight
+    return seconds
+
+
+def _add_seconds(data, seconds, attribute, lookup_dict, regex):
+    if attribute in data:
+        # Retrieve weight
+        weight = _key_lookup(data[attribute], lookup_dict, regex)
+        if weight:
+            # Add constant weight to seconds
+            seconds += weight 
+    return seconds
+
+
+def _calculate_weights(data, length_weighting_attribute, length_weight_lookup,
+    constant_weighting_attribute, constant_weighting_lookup, regex, assumed_speed):    
+    seconds = 0
+    # Account for length of the segment
+    seconds = _length_based_seconds(data, seconds, assumed_speed)
+    # Weight the length
+    if (length_weighting_attribute and length_weight_lookup):
+        seconds = _multiply_seconds(data, seconds, length_weighting_attribute, length_weight_lookup, regex)
+    # Add constant weight
+    if (constant_weighting_attribute and constant_weighting_lookup):
+        seconds = _add_seconds(data, seconds, constant_weighting_attribute, constant_weighting_lookup, regex)
+    return seconds
+
+
+def calculate_edge_time(G, length_weighting_attribute=None, length_weight_lookup=None, 
+    constant_weighting_attribute=None, constant_weighting_lookup=None, assumed_speed=4.5, regex=True):
+    """Calculate travel time in seconds for travel along graph edges.
+    
+    For use as the `weight` parameter when calculating a least-cost path.
+    
+    Uses string searching to identify matching attributes in order to accomodate
+    attributes that are lists. Regex enables matching flexibility.
+    
+    Example: use 'secondary.*' as a key in the lookup dictionary to match
+    both 'secondary' and 'secondary_link' attribute values.
+    
+    """
+    G = G.copy()
+    graph_field_calculate(G, _calculate_weights, 'seconds', nodes=False, args=(
+        length_weighting_attribute, 
+        length_weight_lookup,
+        constant_weighting_attribute,
+        constant_weighting_lookup, 
+        regex, assumed_speed))
+    return G
+
+
 ########### These functions deal with outputs from the Pandana package
 
 def build_routes_for_nearest_pois(net, nearest_pois, G):
