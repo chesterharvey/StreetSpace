@@ -1525,7 +1525,7 @@ def _key_lookup(attribute, lookup_dict, regex):
     """
     
     # make the attribute into a list if it isn't already
-    attributes = sp.listify(attribute)
+    attributes = listify(attribute)
     
     # Search through the lookup dictionary in order
     for key, value in lookup_dict.items():
