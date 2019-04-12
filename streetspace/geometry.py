@@ -1713,3 +1713,26 @@ def standardize_geometry_column(gdf, current_geom_column):
     gdf = gdf.drop(columns=[current_geom_column])
     gdf = gpd.GeoDataFrame(gdf, geometry=geometry, crs=crs)
     return gdf
+
+def quadrat_cut_gdf(gdf, width):
+    """Split polygon geometries in a gdf into `width`-sized quadrats
+    """
+    # Initiate a new dataframe for storing splits
+    split_rows = []
+    
+    # Iterate through the original geometries to split them
+    for row in gdf.itertuples():
+        # Convert row to a dictionary, so it's mutable
+        row = row._asdict()
+        # Split the geometry
+        split_geometry = ox.quadrat_cut_geometry(tazs.iloc[0]['geometry'], quadrat_width=width)
+        # Convert to a list
+        split_geometry = [x for x in split_geometry]
+        for geometry in split_geometry:
+            _row = row.copy()
+            _row['geometry'] = geometry
+            split_rows.append(_row)
+    
+    crs = gdf.crs
+    gdf = gpd.GeoDataFrame(test, geometry='geometry', crs=crs)
+    return gdf
