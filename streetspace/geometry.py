@@ -1714,6 +1714,7 @@ def standardize_geometry_column(gdf, current_geom_column):
     gdf = gpd.GeoDataFrame(gdf, geometry=geometry, crs=crs)
     return gdf
 
+
 def quadrat_cut_gdf(gdf, width):
     """Split polygon geometries in a gdf into `width`-sized quadrats
     """
@@ -1725,7 +1726,7 @@ def quadrat_cut_gdf(gdf, width):
         # Convert row to a dictionary, so it's mutable
         row = row._asdict()
         # Split the geometry
-        split_geometry = ox.quadrat_cut_geometry(tazs.iloc[0]['geometry'], quadrat_width=width)
+        split_geometry = ox.quadrat_cut_geometry(row['geometry'], quadrat_width=width)
         # Convert to a list
         split_geometry = [x for x in split_geometry]
         for geometry in split_geometry:
