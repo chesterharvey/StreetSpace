@@ -1735,5 +1735,5 @@ def quadrat_cut_gdf(gdf, width):
             split_rows.append(_row)
     
     crs = gdf.crs
-    gdf = gpd.GeoDataFrame(test, geometry='geometry', crs=crs)
+    gdf = gpd.GeoDataFrame(split_rows, geometry='geometry', crs=crs)
     return gdf
