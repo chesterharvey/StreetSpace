@@ -1235,6 +1235,13 @@ def classify_turns(G, in_edges, out_edges, straight_angle=20, edge_level=None):
             if edge_level:
                 in_levels, out_levels, delta_levels = classify_turn_level(G, in_edge, out_edges, edge_level)
             
+                # Cross level is the maximum of levels among right and left out edges
+                if ('right' in turn_directions) or ('left' in turn_directions):
+                    cross_level = max([level for direction, level in zip(turn_directions, out_levels) if direction in ['right','left']])
+                    cross_levels = [cross_level] * len(out_levels)
+                else:
+                    cross_levels = [None] * len(out_levels)
+
             for i, (out_u, _, _) in enumerate(out_edges):
                 G[in_v][out_u][0]['turn_direction'] = turn_directions[i]
                 G[in_v][out_u][0]['in_azimuth'] = in_azimuth
@@ -1248,6 +1255,7 @@ def classify_turns(G, in_edges, out_edges, straight_angle=20, edge_level=None):
                     G[in_v][out_u][0]['delta_levels'] = delta_levels[i]
                     G[in_v][out_u][0]['min_level'] = min_level
                     G[in_v][out_u][0]['max_level'] = max_level
+                    G[in_v][out_u][0]['cross_level'] = cross_levels[i]
 
 
 def classify_turn_level(G, in_edge, out_edges, edge_level):
@@ -1582,7 +1590,8 @@ def _add_seconds(data, seconds, attribute, lookup_dict, regex):
 
 
 def _calculate_weights(data, length_weighting_attribute, length_weight_lookup,
-    constant_weighting_attribute, constant_weighting_lookup, regex, assumed_speed):    
+    constant_weighting_attribute, constant_weighting_lookup, custom_function, 
+    custom_function_args, regex, assumed_speed):    
     seconds = 0
     # Account for length of the segment
     seconds = _length_based_seconds(data, seconds, assumed_speed)
@@ -1592,11 +1601,15 @@ def _calculate_weights(data, length_weighting_attribute, length_weight_lookup,
     # Add constant weight
     if (constant_weighting_attribute and constant_weighting_lookup):
         seconds = _add_seconds(data, seconds, constant_weighting_attribute, constant_weighting_lookup, regex)
+    # Apply custom function
+    if custom_function:
+        seconds = custom_function(data, seconds, custom_function_args)
     return seconds
 
 
 def calculate_edge_time(G, length_weighting_attribute=None, length_weight_lookup=None, 
-    constant_weighting_attribute=None, constant_weighting_lookup=None, assumed_speed=4.5, regex=True):
+    constant_weighting_attribute=None, constant_weighting_lookup=None, custom_function=None, 
+    custom_function_args=(), assumed_speed=4.5, regex=True):
     """Calculate travel time in seconds for travel along graph edges.
     
     For use as the `weight` parameter when calculating a least-cost path.
@@ -1613,7 +1626,9 @@ def calculate_edge_time(G, length_weighting_attribute=None, length_weight_lookup
         length_weighting_attribute, 
         length_weight_lookup,
         constant_weighting_attribute,
-        constant_weighting_lookup, 
+        constant_weighting_lookup,
+        custom_function,
+        custom_function_args,
         regex, assumed_speed))
     return G
 
@@ -1685,4 +1700,44 @@ def count_routes_along_edges(edge_sequences, edges, keep_all_edges=False):
         how='inner'
     edge_counts = edges.merge(edge_counts, on=['u','v'], how=how)
     return edge_counts
+
+
+def calculate_edge_levels(G, default_level=0, level_field='highway', 
+    level_values=[
+        {'cycleway', 'footway', 'path', 'pedestrian', 'service', 'steps'},
+        {'track'},
+        {'residential', 'unclassified'},
+        {'tertiary', 'tertiary_link'},
+        {'secondary', 'secondary_link'},
+        {'primary', 'primary_link'},
+        {'trunk'},
+        {'motorway', 'motorway_link'}]):
+    """Calculate levels for edges in a graph
+    """
+    # Operate on a copy of the graph
+    G = G.copy()
+    # Make dictionary for levels
+    level_dict = {value:i for i, values in enumerate(level_values) for value in values}
+    # Function to query dictionary
+    def define_level(data):
+        if level_field in data:
+            levels = []
+            # Retrieve highway tags on the edge record
+            attributes = data[level_field]
+            # Make into a list of not already
+            attributes = listify(attributes)
+            # Force all attributes to be strings
+            attributes = [str(x) for x in attributes]
+            # Iterate through highway tags specified in the level dictionary
+            for highway, level in level_dict.items():
+                pattern = re.compile(highway)
+                if any([pattern.search(attribute) for attribute in attributes]):
+                    levels.append(level)
+            # Return the maximum of available levels
+            if len(levels) > 0:
+                return max(levels)
+        return default_level
+    # Run across all edges
+    graph_field_calculate(G, define_level, 'edge_level', nodes=False)
+    return G
 

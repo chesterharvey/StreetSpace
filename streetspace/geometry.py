@@ -1732,8 +1732,9 @@ def quadrat_cut_gdf(gdf, width):
         for geometry in split_geometry:
             _row = row.copy()
             _row['geometry'] = geometry
-            split_rows.append(_row)
-    
+            split_rows.append(_row) 
     crs = gdf.crs
     gdf = gpd.GeoDataFrame(split_rows, geometry='geometry', crs=crs)
+    # Change name of index column so it doesn't interfere with another pass through itertuples
+    gdf = gdf.rename(columns={'Index':'orig_index'})
     return gdf
