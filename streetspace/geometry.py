@@ -23,6 +23,7 @@ from rtree import index
 from itertools import cycle, groupby
 from pprint import pprint
 from time import time
+from scipy.spatial import cKDTree  
 
 from .utils import *
 
@@ -1738,3 +1739,24 @@ def quadrat_cut_gdf(gdf, width):
     # Change name of index column so it doesn't interfere with another pass through itertuples
     gdf = gdf.rename(columns={'Index':'orig_index'})
     return gdf
+
+
+def identify_nearest_points(gdf_a, gdf_b, b_column, merge_original=False):
+    """Identify the nearest point in `gdf_b` for each point in `gdf_a`.
+
+    Value in `b_column` is reported for each row in `gdf_a`.
+
+    Adapted from https://gis.stackexchange.com/questions/222315/geopandas-find-nearest-point-in-other-dataframe
+    """   
+    nA = np.array(list(zip(gdf_a.geometry.x, gdf_a.geometry.y)) )
+    nB = np.array(list(zip(gdf_b.geometry.x, gdf_b.geometry.y)) )
+    btree = cKDTree(nB)
+    dist, idx = btree.query(nA,k=1)
+    df = pd.DataFrame.from_dict(
+        {
+            'distance': dist.astype(int),
+            b_column : gdf_b.loc[idx, b_column].values
+        })
+    if merge_original:
+        df = gdf_a.merge(df, left_index=True, right_index=True)
+    return df
