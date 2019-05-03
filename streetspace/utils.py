@@ -514,3 +514,11 @@ def remove_sequential_duplicates(l):
     seen = set()
     return [x for x in l if not (x in seen or seen.add(x))]
 
+
+def no_space_column_names(df):
+    """Replace spaces in column names with underscores    
+    """
+    df = df.copy()
+    df.columns = [x.replace(' ', '_') for x in df.columns]
+    return df
+

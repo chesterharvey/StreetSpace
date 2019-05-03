@@ -27,16 +27,16 @@ def closest_point_along_network(search_point, G, search_distance=None,
     Find the closest point along the edges of a NetworkX graph with Shapely 
     LineString geometry attributes in the same coordinate system.
 
-    Example restriction function:
+    Example accessibility function and dictionary definition:
 
-    def low_stress_highway(data):
-        low_stress = ['cycleway','residential','unclassified','tertiary',
-                      'secondary','primary']
-        # print(data.keys())
-        if (data is not None and 'highway' in data):
-            return any(h in low_stress for h in listify(data['highway']))
-        else:
-            return False
+        def low_stress_highway(highway):
+            low_stress = ['cycleway','residential','unclassified','tertiary',
+                          'secondary','primary']
+            if highway in low_stress:
+                return True
+            else:
+                return False
+        accessibility_function={'highway':low_stress_highway}
 
     Parameters
     ----------
@@ -50,11 +50,12 @@ def closest_point_along_network(search_point, G, search_distance=None,
         Maximum distance to search from the `search_point`
     sindex : :class:`rtree.index.Index`, optional, default = ``None``
         Spatial index for edges of `G`
-    restrictions: :obj:`list`
-        Function used to restrict edges on which closest point may\
-        be located. Function must have a single argument that accepts the\
-        attribute dictionary for each edge (produced by  ``G.get_edge_data``)\
-        and must return ``True`` or ``False``. See above for example function.
+    accessibility_functions: :obj:`dict`
+        Dictionary of attribute:function pairs. The attribute will be queried
+        from each edge, if it exists, and fed to the function, which should
+        accept this single argument and return a boolean response. Edges will be
+        assumed to be accessibile if the specified attribute does not exist.
+        See above for an example function and dictionary definition.
 
     Returns
     -------
@@ -86,13 +87,19 @@ def closest_point_along_network(search_point, G, search_distance=None,
     elif search_distance:
         # Construct search bounds around the search point
         search_area = search_point.buffer(search_distance)
-        edges = G.edges(keys=True, data='geometry')
+        if G.is_multigraph():
+            edges = G.edges(keys=True, data='geometry')
+        else:
+            edges = G.edges(data='geometry')
         # Collect edges that intersect the search area as (index, geometry) tuples
         edge_tuples = [seperate_edge_index_and_geom(edge) for edge
                        in edges if edge[-1].intersects(search_area)]
     else:
         # Collect all edges as (index, geometry) tuples
-        edges = G.edges(keys=True, data='geometry')
+        if G.is_multigraph():
+            edges = G.edges(keys=True, data='geometry')
+        else:
+            edges = G.edges(data='geometry')
         edges_tuples = [seperate_edge_index_and_geom(edge) for edge in edges]
     # Pare down edges based on further criteria
     if accessibility_functions:
@@ -198,17 +205,32 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
     if verbose:
         print('removing edge {} from graph'.format(edge))
     remove_edge(G, edge, node_point)       
-    if verbose:
-        print('adding first forward edge {} to graph and index'.format((edge[0], node_name, 0)))
     # Add new edges
-    add_new_edge(G, (edge[0], node_name, 0), 
-                segment(original_geom, endpoints(original_geom)[0], node_point),
-                attrs, sindex=sindex)
-    if verbose:
-        print('adding second forward edge {} to graph and index'.format((node_name, edge[1], 0)))
-    add_new_edge(G, (node_name, edge[1], 0), 
-                segment(original_geom, node_point, endpoints(original_geom)[1]),
-                attrs, sindex=sindex)
+    if G.is_multigraph():
+        if verbose:
+            print('adding first forward edge {} to graph and index'.format((edge[0], node_name, 0)))
+    
+        add_new_edge(G, (edge[0], node_name, 0), 
+                    segment(original_geom, endpoints(original_geom)[0], node_point),
+                    attrs, sindex=sindex)
+        if verbose:
+            print('adding second forward edge {} to graph and index'.format((node_name, edge[1], 0)))
+        add_new_edge(G, (node_name, edge[1], 0), 
+                    segment(original_geom, node_point, endpoints(original_geom)[1]),
+                    attrs, sindex=sindex)
+    else:
+        if verbose:
+            print('adding first forward edge {} to graph and index'.format((edge[0], node_name)))
+    
+        add_new_edge(G, (edge[0], node_name), 
+                    segment(original_geom, endpoints(original_geom)[0], node_point),
+                    attrs, sindex=sindex)
+        if verbose:
+            print('adding second forward edge {} to graph and index'.format((node_name, edge[1])))
+        add_new_edge(G, (node_name, edge[1]), 
+                    segment(original_geom, node_point, endpoints(original_geom)[1]),
+                    attrs, sindex=sindex)
+
     if both_ways:
         # Flip the start and end node
         reverse = tuple(reverse_edge(edge))
@@ -281,7 +303,8 @@ def _flag_accessible(data, accessibility_functions):
 
 
 def connect_points_to_closest_edges(G, points, search_distance=None, 
-    sindex=None, points_to_nodes=True, accessibility_functions=None, verbose=False):
+    sindex=None, points_to_nodes=True, return_unplaced=False, 
+    accessibility_functions=None, verbose=False):
     """Connect points to a graph by inserting a node along their closest edge.
 
     G : :class:`networkx.Graph`, :class:`networkx.DiGraph`,\
@@ -312,8 +335,13 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
     """
     # Make list to record unplaced points
     unplaced_points =[]
+    
     # Make a dictionary for mapping alias node names
     node_aliases = {}
+
+    # If no spatial index for graph, make one
+    if not sindex:
+        sindex = make_graph_sindex(G)
     
     if verbose:
         node_check_time = 0
@@ -341,8 +369,12 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
                 sindex.intersection(v_point.buffer(10).bounds, objects=True)]
             nearby_nodes = list(set([x for edge in nearby_edges
                 for x in edge[1:2]]))
-            nearby_points = [Point(G.node[node]['x'], G.node[node]['y'])
+
+            # nearby_points = [Point(G.node[node]['x'], G.node[node]['y'])
+            #     for node in nearby_nodes]
+            nearby_points = [Point(G.node[node]['geometry'].x, G.node[node]['geometry'].y)
                 for node in nearby_nodes]
+
             distances = [point.distance(v_point) for point in nearby_points]
             min_index = distances.index(min(distances))
             min_distance = min(distances)
@@ -372,13 +404,23 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
                          'y': u_point.y}
                 G.add_node(u_name, **attrs)
                 # Add an edge connecting it to the previously inserted point
-                add_new_edge(G, (u_name, v_name, 0), 
-                            LineString([u_point, v_point]),
-                            sindex=sindex)
+                if G.is_multigraph():
+                    add_new_edge(G, (u_name, v_name, 0), 
+                                LineString([u_point, v_point]),
+                                sindex=sindex)
+                else:
+                    add_new_edge(G, (u_name, v_name), 
+                                LineString([u_point, v_point]),
+                                sindex=sindex)
                 if nx.is_directed(G):
-                    add_new_edge(G, (v_name, u_name, 0), 
-                        LineString([v_point, u_point]),
-                        sindex=sindex)
+                    if G.is_multigraph():
+                        add_new_edge(G, (v_name, u_name, 0), 
+                            LineString([v_point, u_point]),
+                            sindex=sindex)
+                    else:
+                        add_new_edge(G, (v_name, u_name), 
+                            LineString([v_point, u_point]),
+                            sindex=sindex)
             if verbose:
                 draw_connector_time += (time()-draw_connector_start)
         else:
@@ -388,7 +430,9 @@ def connect_points_to_closest_edges(G, points, search_distance=None,
         print('insert node time: {}'.format(insert_node_time))
         print('draw connector time: {}'.format(draw_connector_time))
     nodes_sindex = None
-    return unplaced_points, node_aliases
+    
+    if return_unplaced:
+        return unplaced_points
 
 
 def seperate_edge_index_and_geom(edge):
@@ -470,7 +514,10 @@ def make_graph_sindex(G, path=None, load_existing=False, open_copy=False):
                 edge_tuple, geometry = seperate_edge_index_and_geom(edge)
                 yield (i+1, geometry.bounds, edge_tuple)
         # Remove any old versions that exist
-        edges = G.edges(keys=True, data='geometry')
+        if G.is_multigraph():
+            edges = G.edges(keys=True, data='geometry')
+        else:
+            edges = G.edges(data='geometry')
         if path:
             # (since `index` method appends rather than overwriting)
             try:
@@ -1483,7 +1530,7 @@ def graph_field_calculate(G, function, new_field, edges=True, nodes=True, id=Fal
     if inplace=False, returns copy of G
     """
     if not inplace:
-        G = G.copy
+        G = G.copy()
 
     if nodes:
         # Iterate through nodes
