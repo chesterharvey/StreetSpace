@@ -1391,6 +1391,9 @@ def create_intersection_edges(G, straight_angle=20, level_field=None):
 # Convert segments to a graph
 def gdf_edges_to_graph(gdf, twoway_column='oneway', twoway_id='False', search_distance=1):
     """Identify nodes and construct a NetworkX graph based on edge segments in a gdf
+
+    If edges represent one-way links, set `twoway_column=False`
+
     """
     # Operate on a copy of the geodataframe
     gdf = gdf.copy()
