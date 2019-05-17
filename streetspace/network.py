@@ -1287,7 +1287,7 @@ def classify_turns(G, in_edges, out_edges, straight_angle=20, edge_level=None):
                     cross_level = max([level for direction, level in zip(turn_directions, out_levels) if direction in ['right','left']])
                     cross_levels = [cross_level] * len(out_levels)
                 else:
-                    cross_levels = [None] * len(out_levels)
+                    cross_levels = [np.nan] * len(out_levels)
 
             for i, (out_u, _, _) in enumerate(out_edges):
                 G[in_v][out_u][0]['turn_direction'] = turn_directions[i]
@@ -1389,22 +1389,38 @@ def create_intersection_edges(G, straight_angle=20, level_field=None):
 
 
 # Convert segments to a graph
-def gdf_edges_to_graph(gdf, twoway_column='oneway', twoway_id='False', search_distance=1):
+def gdf_edges_to_graph(gdf, u=None, v=None, key=None, twoway_column=None, twoway_id='False', search_distance=1):
     """Identify nodes and construct a NetworkX graph based on edge segments in a gdf
 
-    If edges represent one-way links, set `twoway_column=False`
+    Use `u`, `v`, and `key` parameters to provide column names that contain known graph nodes and keys.
 
+    If nodes and keys are unknown, specify a search distance for using spatial queries to automatically construct nodes.
+    #### TODO: generalize for undirected and non-multigraphs
+
+    If edges represent one-way links, set `twoway_column=None`
     """
     # Operate on a copy of the geodataframe
     gdf = gdf.copy()
     # Make backward edges if requested
     if twoway_column:
         gdf = make_backward_edges(gdf, twoway_column=twoway_column, twoway_id=twoway_id)
-    # Identify graph nodes
-    nodes, edges = build_nodes_from_edges(gdf, search_distance=search_distance)
-    # Build graph
-    G = ox.gdfs_to_graph(nodes, edges)
-    return G
+    if all((u, v, key)):
+        G = nx.MultiDiGraph()
+        for edge in gdf.itertuples():
+            # Extract edge attributes
+            edge_attrs = edge._asdict()
+            edge_attrs.pop('Index')
+            u = edge_attrs.pop('u')
+            v = edge_attrs.pop('v')
+            key = edge_attrs.pop('key')
+            # Add edge to graph 
+            G.add_edge(u, v, key, **edge_attrs)
+    else:
+        # Build common nodes by spatially joining
+        nodes, edges = build_nodes_from_edges(gdf, search_distance=search_distance)
+        # Build graph
+        G = ox.gdfs_to_graph(nodes, edges)
+    return G  
 
 
 def attach_gdf_point_attributes_to_graph_nodes(G, point_gdf, search_distance=1):
@@ -1621,9 +1637,15 @@ def _key_lookup(attribute, lookup_dict, regex):
 def _multiply_seconds(data, seconds, attribute, lookup_dict, regex):
     # NOTE: Only examines the first highway tag if there are multiple
     if attribute in data:
-        # Retrieve weight
-        weight = _key_lookup(data[attribute], lookup_dict, regex)
-        if weight:
+        if lookup_dict:
+            # Retrieve weight
+            weight = _key_lookup(data[attribute], lookup_dict, regex)
+            if weight:
+                # Multiply seconds by weight
+                seconds *= weight    
+        else:
+            # Weight is based directly on attribute
+            weight = data[attribute]
             # Multiply seconds by weight
             seconds *= weight
     return seconds
@@ -1646,14 +1668,14 @@ def _calculate_weights(data, length_weighting_attribute, length_weight_lookup,
     # Account for length of the segment
     seconds = _length_based_seconds(data, seconds, assumed_speed)
     # Weight the length
-    if (length_weighting_attribute and length_weight_lookup):
+    if (length_weighting_attribute):
         seconds = _multiply_seconds(data, seconds, length_weighting_attribute, length_weight_lookup, regex)
     # Add constant weight
     if (constant_weighting_attribute and constant_weighting_lookup):
         seconds = _add_seconds(data, seconds, constant_weighting_attribute, constant_weighting_lookup, regex)
     # Apply custom function
     if custom_function:
-        seconds = custom_function(data, seconds, custom_function_args)
+        seconds = custom_function(data, seconds, *custom_function_args)
     return seconds
 
 
