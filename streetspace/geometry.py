@@ -1706,9 +1706,11 @@ def reverse_linestring(linestring):
     return LineString(linestring.coords[::-1])
 
 
-def standardize_geometry_column(gdf, current_geom_column):
+def standardize_geometry_column(gdf, current_geom_column=None):
     """Converts the name of a gdf's geometry column to the standard 'geometry'
     """
+    if not current_geom_column:
+        current_geom_column = gdf.geometry.name
     geometry = gdf[current_geom_column].tolist()
     crs = gdf.crs
     gdf = gdf.drop(columns=[current_geom_column])
