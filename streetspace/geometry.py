@@ -657,13 +657,13 @@ def haversine(lon1, lat1, lon2, lat2, unit = 'km'):
 
     Parameters
     ----------
-    lon1 : :obj:`float`
+    lon1 : :obj:`float` or vector of :obj:`float`
         Longitude of 1st point
-    lat1 : :obj:`float`
+    lat1 : :obj:`float` or vector of :obj:`float`
         Latitute of 1st point
-    lon2 : :obj:`float`
+    lon2 : :obj:`float` or vector of :obj:`float`
         Longitude of 2nd point
-    lat2 : :obj:`float`
+    lat2 : :obj:`float` or vector of :obj:`float`
         Latitude of 2nd point
     unit : :obj:`str`, optional, default = ``'km'``
         * ``'km'`` : Kilometers
@@ -679,12 +679,12 @@ def haversine(lon1, lat1, lon2, lat2, unit = 'km'):
     elif unit == 'mi':
         r = 3956 # Radius of the earth in mi
     # convert decimal degrees to radians 
-    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
     # haversine formula 
     dlon = lon2 - lon1 
     dlat = lat2 - lat1 
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a))
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arcsin(np.sqrt(a))
     return c * r
 
 
