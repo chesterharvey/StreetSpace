@@ -1202,15 +1202,19 @@ def explode_node(G, node):
     out_edges = []
     out_i = 0 # start counter 
     for orig_out_edge in orig_out_edges:
-        # If edge is self-loop, may have already been deleted
-        if G.has_edge(*orig_out_edge):
-            # Add a new node
-            out_edge, out_node, out_i = add_node(G, orig_out_edge, out_i, 'out')
-            out_nodes.append(out_node)
-            out_edges.append(out_edge)
+        # # If edge is self-loop, may have already been deleted
+        # if G.has_edge(*orig_out_edge):
+        # Add a new node
+        out_edge, out_node, out_i = add_node(G, orig_out_edge, out_i, 'out')
+        out_nodes.append(out_node)
+        out_edges.append(out_edge)
     
+    # The thing to do here is either:
+    # (1) see whether there are any other edges that require this node; if not, delete it
+    # or (2) don't delete the nodes right away, but instead delete them after the fact (after exploding the node)
+
     # Remove old node
-    G.remove_node(node)
+    # G.remove_node(node)
     
     # Connect new nodes with edges
     inter_edges = []
@@ -1220,7 +1224,7 @@ def explode_node(G, node):
             G.add_edge(*new_edge)
             inter_edges.append(new_edge)
 
-    # Add original node attributes to inter-edges
+    # Add original node attributes to inter_edges
     for edge in inter_edges:
         u, v, key = edge
         edge_attributes = node_attributes
@@ -1378,11 +1382,16 @@ def create_intersection_edges(G, straight_angle=20, level_field=None):
     """
     G = G.copy()
     # Split self-looping edges so that their ends are distinguishable
-    G = split_self_loops(G)
+    # G = split_self_loops(G)
+    nodes_to_delete = []
     # Explode each node into sub-edges
     for node in list(G.nodes()):
         # Explode the node into edges
         in_edges, out_edges = explode_node(G, node)
+        # Mark old node for deletion
+        nodes_to_delete.append(node)
+        # # Remove old node
+        # G.remove_node(node)
         # Classify turns on edges
         classify_turns(G, in_edges, out_edges, straight_angle=straight_angle, edge_level=level_field)
     return G
@@ -1812,4 +1821,137 @@ def calculate_edge_levels(G, default_level=0, level_field='highway',
     # Run across all edges
     graph_field_calculate(G, define_level, 'edge_level', nodes=False)
     return G
+
+
+def build_turns_within_table(edges, nodes, edge_level=None, straight_angle=20):
+    
+    def _explode_nodes_within_table(edges, nodes):
+        # Construct in and out identifiers
+        # Out
+        edges['turn_v'] = 1
+        edges['turn_v'] = edges.groupby('u')['turn_v'].cumsum() - 1
+        edges['turn_v'] = '_out' + edges['turn_v'].map(str)
+        edges['turn_v'] = edges['u'].map(str) + edges['turn_v']
+        # In
+        edges['turn_u'] = 1
+        edges['turn_u'] = edges.groupby('v')['turn_u'].cumsum() - 1
+        edges['turn_u'] = '_in' + edges['turn_u'].map(str)
+        edges['turn_u'] = edges['v'].map(str) + edges['turn_u']   
+        # Join the in-ends to the out-ends to identify turn edges
+        # (for every in, there should be a row for each out with the same parent node)
+        in_edges = edges[['u','v','key','turn_u']].rename(
+            columns={'u':'u_in','v':'v_in','key':'key_in'})
+        out_edges = edges[['u','v','key','turn_v']].rename(
+            columns={'u':'u_out','v':'v_out','key':'key_out'})
+        turns = in_edges.merge(
+            out_edges, left_on='v_in', right_on='u_out', how='inner').sort_values(
+                ['turn_u', 'turn_v']).reset_index(drop=True) 
+        # Combine edge ids into tuples
+        turns['in_edge'] = list(zip(turns['u_in'], turns['v_in'], turns['key_in']))
+        turns['out_edge'] = list(zip(turns['u_out'], turns['v_out'], turns['key_out']))
+        # Make parent node column
+        turns['parent_node'] = turns['v_in']
+        # Join node data to turns
+        turns = turns.merge(
+            nodes.drop(columns=['geometry']), 
+            left_on='parent_node', right_index=True, how='left')
+        return turns
+    
+    def _classify_turns_within_table(turns, edges, edge_level):
+        # Calculate start and end azimuths for every edge
+        def _u_v_azimuths(linestring):
+            u_azimuth = azimuth_at_distance(linestring, 0)
+            v_azimuth = azimuth_at_distance(linestring, linestring.length)
+            return u_azimuth, v_azimuth
+        edges[['u_azimuth','v_azimuth']] = pd.DataFrame(edges['geometry'].map(
+            _u_v_azimuths).tolist(), index=edges.index)
+        # Attach azimuths and levels to the in and out ends of turns 
+        edges['edge'] = list(zip(edges['u'], edges['v'], edges['key']))  
+        if edge_level:
+            turns[['in_azimuth', 'in_level']] = turns.merge(
+                edges.set_index('edge')[['v_azimuth', edge_level]], 
+                left_on='in_edge', right_index=True, how='left'
+                )[['v_azimuth', edge_level]]
+            turns[['out_azimuth', 'out_level']] = turns.merge(
+                edges.set_index('edge')[['u_azimuth', edge_level]], 
+                left_on='out_edge', right_index=True, how='left'
+                )[['u_azimuth', edge_level]]
+        else:
+            turns['in_azimuth'] = turns.merge(
+                edges.set_index('edge')['v_azimuth'], 
+                left_on='in_edge', right_index=True, how='left'
+                )['v_azimuth']
+            turns['out_azimuth'] = turns.merge(
+                edges.set_index('edge')['u_azimuth'], 
+                left_on='out_edge', right_index=True, how='left'
+                )['u_azimuth']
+        # Calculate turn attributes that are NOT dependent on order
+        # Relative azimuths
+        turns['relative_azimuths'] = (turns['out_azimuth'] - turns['in_azimuth']).map(
+            normalize_azimuth)
+        # Turn directions
+        turns['turn_direction'] = turns['relative_azimuths'].map(
+            lambda x: classify_turn_direction(x, straight_angle=straight_angle))            
+        # Calculate turn attributes that are dependent on order  
+        # Group by turn_u and sort by relative azimuth
+        grouped_turns = turns.sort_values('relative_azimuths').groupby('turn_u')
+        turn_vs = grouped_turns['turn_v'].apply(list)
+        relative_azimuths = grouped_turns['relative_azimuths'].apply(list)
+        turn_directions = grouped_turns['turn_direction'].apply(list)
+        # Classify turn proximities based on the order of relative azimuths for each turn
+        turn_proximities = relative_azimuths.map(classify_turn_proximity).rename('turn_proximity')
+        # Classify turns across based on the combination of directions and proximities
+        turn_across = pd.Series(map(classify_turn_acrosses, turn_directions, turn_proximities),
+            index=turn_proximities.index).rename('turn_across')
+        ordered_turn_attributes = unpack_lists_into_rows(
+            pd.concat([turn_vs, turn_proximities, turn_across], axis=1).reset_index(),
+            ['turn_v','turn_proximity','turn_across'])
+        # Merge ordered turn attributes back onto turn table
+        turns = turns.merge(ordered_turn_attributes, on=['turn_u','turn_v'], how='left')
+        # Only calculate edge level summaries if level field supplied
+        if edge_level:
+            turns['delta_level'] = turns['out_level'] - turns['in_level']
+            max_levels = turns.groupby('in_edge').agg({'in_level':'max', 'out_level':'max'}).rename(
+                columns={'in_level':'max_in_level', 'out_level':'max_out_level'})
+            turns = turns.merge(max_levels, left_on='in_edge', right_index=True)
+            turns['max_level'] = turns[['max_in_level','max_out_level']].max(axis=1)
+            # Calculate the crossing level
+            # (maximum in- or out-level among right and left turns for a given intersection entry)
+            turns = turns.merge(
+                turns[
+                    (turns['turn_direction'] == 'left') | 
+                    (turns['turn_direction'] == 'right')
+                ].groupby('turn_u').agg({
+                    'in_level':'max', 
+                    'out_level':'max'}).max(axis=1).rename('cross_level'),
+                left_on='turn_u', right_index=True, how='left')
+        return turns
+
+    def unpack_lists_into_rows(df, list_columns):
+	    """Unpack lists in one or more dataframe columns into their own rows
+	    
+	    Cells in other columns are duplicated across all unpacked rows. 
+	    
+	    All lists must be the same length across columns in list_columns,
+	    but can be different lengths across rows
+	    
+	    Objects in lists cannot be iterable, or numpy.concatenate will try to further
+	    split them in their smallest 
+	    """
+	    list_columns = listify(list_columns)
+	    non_list_columns = df.columns.difference(list_columns)
+	    columns = {}
+	    for column in non_list_columns:
+	        columns[column] = np.repeat(df[column].values, df[list_columns[0]].str.len())
+	    for column in list_columns:
+	        columns[column] = np.concatenate(df[column].values)
+	    return pd.DataFrame(columns)
+
+    # Don't modify the original tables
+    edges = edges.copy()
+    nodes = nodes.copy()
+    # Build turns and classify them
+    turns = _explode_nodes_within_table(edges, nodes)
+    turns = _classify_turns_within_table(turns, edges, edge_level=edge_level)
+    return turns
 
