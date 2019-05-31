@@ -1019,34 +1019,21 @@ def fill_missing_graph_geometries(G):
     return G
 
 
-def make_backward_edges(edges, twoway_column='oneway', twoway_id='False'):
+def make_backward_edges(edges, u='u', v='v', twoway_column='oneway', twoway_id='False'):
     """Create a duplicate edge in the opposite direction for every two-way edge
-    
     """
-    
+    # Operate on a copy of edges
     edges = edges.copy()
-
     # Get two-way edges
     two_way_edges = edges[edges[twoway_column] == twoway_id].copy()
-
-    # Flip endpoint IDs
-    if 'u' in two_way_edges.columns and 'v' in two_way_edges.columns:
-        u = two_way_edges['u']
-        v = two_way_edges['v']
-        two_way_edges['u'] = v
-        two_way_edges['v'] = u   
-    if 'to' in two_way_edges.columns and 'from' in two_way_edges.columns:
-        to = two_way_edges['to']
-        _from = two_way_edges['from']
-        two_way_edges['to'] = _from
-        two_way_edges['from'] = to
-
+    # Flip endpoint IDs   
+    two_way_edges = two_way_edges.rename(columns={u:v, v:u})
     # Flip geometry    
-    two_way_edges['geometry'] = two_way_edges['geometry'].apply(lambda x: sh.geometry.LineString(x.coords[::-1]))
-
+    if 'geometry' in two_way_edges.columns:
+        two_way_edges['geometry'] = two_way_edges['geometry'].apply(
+            lambda x: LineString(x.coords[::-1]))
     # Append flipped edges back onto edges
-    edges = edges.append(two_way_edges, ignore_index=True)
-    
+    edges = edges.append(two_way_edges, ignore_index=True, sort=False)
     return edges
 
 
@@ -1404,13 +1391,13 @@ def gdf_edges_to_graph(gdf, u=None, v=None, key=None, twoway_column=None, twoway
     Use `u`, `v`, and `key` parameters to provide column names that contain known graph nodes and keys.
 
     If nodes and keys are unknown, specify a search distance for using spatial queries to automatically construct nodes.
-    #### TODO: generalize for undirected and non-multigraphs
+    #### TODO: generalize for undirected graphs
 
     If edges represent one-way links, set `twoway_column=None`
     """
     # Operate on a copy of the geodataframe
     gdf = gdf.copy()
-    # Make backward edges if requested
+    # Make backward edges if requested by specifying twoway_column
     if twoway_column:
         gdf = make_backward_edges(gdf, twoway_column=twoway_column, twoway_id=twoway_id)
     if all((u, v, key)):
@@ -1419,11 +1406,24 @@ def gdf_edges_to_graph(gdf, u=None, v=None, key=None, twoway_column=None, twoway
             # Extract edge attributes
             edge_attrs = edge._asdict()
             edge_attrs.pop('Index')
-            u = edge_attrs.pop('u')
-            v = edge_attrs.pop('v')
-            key = edge_attrs.pop('key')
+            u_value = edge_attrs.pop(u)
+            v_value = edge_attrs.pop(v)
+            key_value = edge_attrs.pop(key)
             # Add edge to graph 
-            G.add_edge(u, v, key, **edge_attrs)
+            G.add_edge(u_value, v_value, key_value, **edge_attrs)
+    elif all((u, v)):
+        G = nx.DiGraph()
+        for edge in gdf.itertuples():
+            # Extract edge attributes
+            edge_attrs = edge._asdict()
+            edge_attrs.pop('Index')
+            try:
+                u_value = edge_attrs.pop(u)
+                v_value = edge_attrs.pop(v)
+            except:
+                print(edge_attrs)
+            # Add edge to graph 
+            G.add_edge(u_value, v_value, **edge_attrs)
     else:
         # Build common nodes by spatially joining
         nodes, edges = build_nodes_from_edges(gdf, search_distance=search_distance)
@@ -1822,136 +1822,170 @@ def calculate_edge_levels(G, default_level=0, level_field='highway',
     graph_field_calculate(G, define_level, 'edge_level', nodes=False)
     return G
 
+def _explode_nodes_within_table(edges, nodes):
+    # Construct in and out identifiers
+    # Out
+    edges['turn_v'] = 1
+    edges['turn_v'] = edges.groupby('u')['turn_v'].cumsum() - 1
+    edges['turn_v'] = '_out' + edges['turn_v'].map(str)
+    edges['turn_v'] = edges['u'].map(str) + edges['turn_v']
+    # In
+    edges['turn_u'] = 1
+    edges['turn_u'] = edges.groupby('v')['turn_u'].cumsum() - 1
+    edges['turn_u'] = '_in' + edges['turn_u'].map(str)
+    edges['turn_u'] = edges['v'].map(str) + edges['turn_u']    
+    # Join the in-ends to the out-ends to identify turn edges
+    # (for every in, there should be a row for each out with the same parent node)
+    in_edges = edges[['u','v','key','turn_u']].rename(
+        columns={'u':'u_in','v':'v_in','key':'key_in'})
+    out_edges = edges[['u','v','key','turn_v']].rename(
+        columns={'u':'u_out','v':'v_out','key':'key_out'})    
+    turns = in_edges.merge(
+        out_edges, left_on='v_in', right_on='u_out', how='inner').sort_values(
+            ['turn_u', 'turn_v']).reset_index(drop=True)    
+    # Combine edge ids into tuples
+    turns['in_edge'] = list(zip(turns['u_in'], turns['v_in'], turns['key_in']))
+    turns['out_edge'] = list(zip(turns['u_out'], turns['v_out'], turns['key_out']))
+    # Make OSMID column to keep track of parent node
+    turns['osmid'] = turns['v_in']
+    # Join node data to turns
+    turns = turns.merge(
+        nodes.drop(columns=['geometry']), 
+        left_on='osmid', right_index=True, how='left')
+    return turns
+
+def _classify_turns_within_table(turns, edges, edge_level, straight_angle):
+    # Calculate start and end azimuths for every edge
+    def _u_v_azimuths(linestring):
+        u_azimuth = azimuth_at_distance(linestring, 0)
+        v_azimuth = azimuth_at_distance(linestring, linestring.length)
+        return u_azimuth, v_azimuth
+    edges[['u_azimuth','v_azimuth']] = pd.DataFrame(edges['geometry'].map(
+        _u_v_azimuths).tolist(), index=edges.index)
+    # Attach azimuths and levels to the in and out ends of turns 
+    edges['edge'] = list(zip(edges['u'], edges['v'], edges['key']))        
+    if edge_level:
+        turns[['in_azimuth', 'in_level']] = turns.merge(
+            edges.set_index('edge')[['v_azimuth', edge_level]], 
+            left_on='in_edge', right_index=True, how='left'
+            )[['v_azimuth', edge_level]]
+        turns[['out_azimuth', 'out_level']] = turns.merge(
+            edges.set_index('edge')[['u_azimuth', edge_level]], 
+            left_on='out_edge', right_index=True, how='left'
+            )[['u_azimuth', edge_level]]
+    else:
+        turns['in_azimuth'] = turns.merge(
+            edges.set_index('edge')['v_azimuth'], 
+            left_on='in_edge', right_index=True, how='left'
+            )['v_azimuth']
+        turns['out_azimuth'] = turns.merge(
+            edges.set_index('edge')['u_azimuth'], 
+            left_on='out_edge', right_index=True, how='left'
+            )['u_azimuth']
+    # Calculate turn attributes that are NOT dependent on order
+    # Relative azimuths
+    turns['relative_azimuths'] = (turns['out_azimuth'] - turns['in_azimuth']).map(
+        normalize_azimuth)
+    # Turn directions
+    turns['turn_direction'] = turns['relative_azimuths'].map(
+        lambda x: classify_turn_direction(x, straight_angle=straight_angle))            
+    # Calculate turn attributes that are dependent on order  
+    # Group by turn_u and sort by relative azimuth
+    grouped_turns = turns.sort_values('relative_azimuths').groupby('turn_u')
+    turn_vs = grouped_turns['turn_v'].apply(list)
+    relative_azimuths = grouped_turns['relative_azimuths'].apply(list)
+    turn_directions = grouped_turns['turn_direction'].apply(list)
+    # Classify turn proximities based on the order of relative azimuths for each turn
+    turn_proximities = relative_azimuths.map(classify_turn_proximity).rename('turn_proximity')
+    # Classify turns across based on the combination of directions and proximities
+    turn_across = pd.Series(map(classify_turn_acrosses, turn_directions, turn_proximities),
+        index=turn_proximities.index).rename('turn_across')
+    ordered_turn_attributes = pd.concat([turn_vs, turn_proximities, turn_across], axis=1).reset_index()
+    ordered_turn_attributes = _unpack_lists_into_rows(
+        ordered_turn_attributes, ['turn_v','turn_proximity','turn_across'])
+    # Merge ordered turn attributes back onto turn table
+    turns = turns.merge(ordered_turn_attributes, on=['turn_u','turn_v'], how='left')
+    # Only calculate edge level summaries if level field supplied
+    if edge_level:
+        turns['delta_level'] = turns['out_level'] - turns['in_level']
+        max_levels = turns.groupby('in_edge').agg({'in_level':'max', 'out_level':'max'}).rename(
+            columns={'in_level':'max_in_level', 'out_level':'max_out_level'})
+        turns = turns.merge(max_levels, left_on='in_edge', right_index=True)
+        turns['max_level'] = turns[['max_in_level','max_out_level']].max(axis=1)
+        # Calculate the crossing level
+        # (maximum in- or out-level among right and left turns for a given intersection entry)
+        turns = turns.merge(
+            turns[
+                (turns['turn_direction'] == 'left') | 
+                (turns['turn_direction'] == 'right')
+            ].groupby('turn_u').agg({
+                'in_level':'max', 
+                'out_level':'max'}).max(axis=1).rename('cross_level'),
+            left_on='turn_u', right_index=True, how='left')
+    return turns
+
+def _unpack_lists_into_rows(df, list_columns):
+    """Unpack lists in one or more dataframe columns into their own rows
+
+    Cells in other columns are duplicated across all unpacked rows. 
+
+    All lists must be the same length across columns in list_columns,
+    but can be different lengths across rows
+
+    Objects in lists cannot be iterable, or numpy.concatenate will try to further
+    split them in their smallest 
+    """
+    list_columns = listify(list_columns)
+    non_list_columns = df.columns.difference(list_columns)
+    columns = {}
+    for column in non_list_columns:
+        columns[column] = np.repeat(df[column].values, df[list_columns[0]].str.len())
+    for column in list_columns:
+        columns[column] = np.concatenate(df[column].values)
+    return pd.DataFrame(columns)
 
 def build_turns_within_table(edges, nodes, edge_level=None, straight_angle=20):
-    
-    def _explode_nodes_within_table(edges, nodes):
-        # Construct in and out identifiers
-        # Out
-        edges['turn_v'] = 1
-        edges['turn_v'] = edges.groupby('u')['turn_v'].cumsum() - 1
-        edges['turn_v'] = '_out' + edges['turn_v'].map(str)
-        edges['turn_v'] = edges['u'].map(str) + edges['turn_v']
-        # In
-        edges['turn_u'] = 1
-        edges['turn_u'] = edges.groupby('v')['turn_u'].cumsum() - 1
-        edges['turn_u'] = '_in' + edges['turn_u'].map(str)
-        edges['turn_u'] = edges['v'].map(str) + edges['turn_u']   
-        # Join the in-ends to the out-ends to identify turn edges
-        # (for every in, there should be a row for each out with the same parent node)
-        in_edges = edges[['u','v','key','turn_u']].rename(
-            columns={'u':'u_in','v':'v_in','key':'key_in'})
-        out_edges = edges[['u','v','key','turn_v']].rename(
-            columns={'u':'u_out','v':'v_out','key':'key_out'})
-        turns = in_edges.merge(
-            out_edges, left_on='v_in', right_on='u_out', how='inner').sort_values(
-                ['turn_u', 'turn_v']).reset_index(drop=True) 
-        # Combine edge ids into tuples
-        turns['in_edge'] = list(zip(turns['u_in'], turns['v_in'], turns['key_in']))
-        turns['out_edge'] = list(zip(turns['u_out'], turns['v_out'], turns['key_out']))
-        # Make parent node column
-        turns['parent_node'] = turns['v_in']
-        # Join node data to turns
-        turns = turns.merge(
-            nodes.drop(columns=['geometry']), 
-            left_on='parent_node', right_index=True, how='left')
-        return turns
-    
-    def _classify_turns_within_table(turns, edges, edge_level):
-        # Calculate start and end azimuths for every edge
-        def _u_v_azimuths(linestring):
-            u_azimuth = azimuth_at_distance(linestring, 0)
-            v_azimuth = azimuth_at_distance(linestring, linestring.length)
-            return u_azimuth, v_azimuth
-        edges[['u_azimuth','v_azimuth']] = pd.DataFrame(edges['geometry'].map(
-            _u_v_azimuths).tolist(), index=edges.index)
-        # Attach azimuths and levels to the in and out ends of turns 
-        edges['edge'] = list(zip(edges['u'], edges['v'], edges['key']))  
-        if edge_level:
-            turns[['in_azimuth', 'in_level']] = turns.merge(
-                edges.set_index('edge')[['v_azimuth', edge_level]], 
-                left_on='in_edge', right_index=True, how='left'
-                )[['v_azimuth', edge_level]]
-            turns[['out_azimuth', 'out_level']] = turns.merge(
-                edges.set_index('edge')[['u_azimuth', edge_level]], 
-                left_on='out_edge', right_index=True, how='left'
-                )[['u_azimuth', edge_level]]
-        else:
-            turns['in_azimuth'] = turns.merge(
-                edges.set_index('edge')['v_azimuth'], 
-                left_on='in_edge', right_index=True, how='left'
-                )['v_azimuth']
-            turns['out_azimuth'] = turns.merge(
-                edges.set_index('edge')['u_azimuth'], 
-                left_on='out_edge', right_index=True, how='left'
-                )['u_azimuth']
-        # Calculate turn attributes that are NOT dependent on order
-        # Relative azimuths
-        turns['relative_azimuths'] = (turns['out_azimuth'] - turns['in_azimuth']).map(
-            normalize_azimuth)
-        # Turn directions
-        turns['turn_direction'] = turns['relative_azimuths'].map(
-            lambda x: classify_turn_direction(x, straight_angle=straight_angle))            
-        # Calculate turn attributes that are dependent on order  
-        # Group by turn_u and sort by relative azimuth
-        grouped_turns = turns.sort_values('relative_azimuths').groupby('turn_u')
-        turn_vs = grouped_turns['turn_v'].apply(list)
-        relative_azimuths = grouped_turns['relative_azimuths'].apply(list)
-        turn_directions = grouped_turns['turn_direction'].apply(list)
-        # Classify turn proximities based on the order of relative azimuths for each turn
-        turn_proximities = relative_azimuths.map(classify_turn_proximity).rename('turn_proximity')
-        # Classify turns across based on the combination of directions and proximities
-        turn_across = pd.Series(map(classify_turn_acrosses, turn_directions, turn_proximities),
-            index=turn_proximities.index).rename('turn_across')
-        ordered_turn_attributes = unpack_lists_into_rows(
-            pd.concat([turn_vs, turn_proximities, turn_across], axis=1).reset_index(),
-            ['turn_v','turn_proximity','turn_across'])
-        # Merge ordered turn attributes back onto turn table
-        turns = turns.merge(ordered_turn_attributes, on=['turn_u','turn_v'], how='left')
-        # Only calculate edge level summaries if level field supplied
-        if edge_level:
-            turns['delta_level'] = turns['out_level'] - turns['in_level']
-            max_levels = turns.groupby('in_edge').agg({'in_level':'max', 'out_level':'max'}).rename(
-                columns={'in_level':'max_in_level', 'out_level':'max_out_level'})
-            turns = turns.merge(max_levels, left_on='in_edge', right_index=True)
-            turns['max_level'] = turns[['max_in_level','max_out_level']].max(axis=1)
-            # Calculate the crossing level
-            # (maximum in- or out-level among right and left turns for a given intersection entry)
-            turns = turns.merge(
-                turns[
-                    (turns['turn_direction'] == 'left') | 
-                    (turns['turn_direction'] == 'right')
-                ].groupby('turn_u').agg({
-                    'in_level':'max', 
-                    'out_level':'max'}).max(axis=1).rename('cross_level'),
-                left_on='turn_u', right_index=True, how='left')
-        return turns
-
-    def unpack_lists_into_rows(df, list_columns):
-	    """Unpack lists in one or more dataframe columns into their own rows
-	    
-	    Cells in other columns are duplicated across all unpacked rows. 
-	    
-	    All lists must be the same length across columns in list_columns,
-	    but can be different lengths across rows
-	    
-	    Objects in lists cannot be iterable, or numpy.concatenate will try to further
-	    split them in their smallest 
-	    """
-	    list_columns = listify(list_columns)
-	    non_list_columns = df.columns.difference(list_columns)
-	    columns = {}
-	    for column in non_list_columns:
-	        columns[column] = np.repeat(df[column].values, df[list_columns[0]].str.len())
-	    for column in list_columns:
-	        columns[column] = np.concatenate(df[column].values)
-	    return pd.DataFrame(columns)
-
     # Don't modify the original tables
     edges = edges.copy()
     nodes = nodes.copy()
     # Build turns and classify them
     turns = _explode_nodes_within_table(edges, nodes)
-    turns = _classify_turns_within_table(turns, edges, edge_level=edge_level)
+    turns = _classify_turns_within_table(turns, edges, edge_level=edge_level, straight_angle=straight_angle)
     return turns
 
+def _attach_turn_ids_to_edges(edges, turns):
+    # Operate on a copy of edges
+    edges = edges.copy()
+    # The u end of each edge inherents the v end of the turn entering it
+    edges_turn_u = edges[['u','v','key']].merge(
+        turns[['u_out', 'v_out', 'key_out', 'turn_u', 'turn_v']], 
+        left_on=['u', 'v', 'key'], 
+        right_on=['u_out', 'v_out', 'key_out'], 
+        how='left').groupby(['u','v']).agg({'turn_v':'first'}).reset_index()
+    edges_turn_u = edges_turn_u.rename(columns={'turn_v':'turn_u'})
+    edges = edges.merge(edges_turn_u, on=['u','v'], how='left')
+    edges['turn_u'] = edges['turn_u'].fillna(edges['u'])
+    # The v end of each edge inherents the u end of the turn leaving from it
+    # edges['turn_v'] = 
+    edges_turn_v = edges[['u','v','key']].merge(
+        turns[['u_in', 'v_in', 'key_in', 'turn_u', 'turn_v']], 
+        left_on=['u', 'v', 'key'], 
+        right_on=['u_in', 'v_in', 'key_in'], 
+        how='left').groupby(['u','v']).agg({'turn_u':'first'}).reset_index()
+    edges_turn_v = edges_turn_v.rename(columns={'turn_u':'turn_v'})
+    edges = edges.merge(edges_turn_v, on=['u','v'], how='left')
+    edges['turn_v'] = edges['turn_v'].fillna(edges['v'])
+    return edges
+
+def combine_edges_and_turns(edges, turns):
+    edges = _attach_turn_ids_to_edges(edges, turns)
+    # stack the edges and turns in the same table
+    edges = pd.concat([edges,turns], axis=0, sort=False)
+    # clean up columns
+    edges = edges.drop(columns=[
+        'in_edge','out_edge',
+        'u_in','v_in','key_in',
+        'u_out','v_out','key_out'])
+    # reset index
+    edges = edges.reset_index(drop=True)
+    return edges
