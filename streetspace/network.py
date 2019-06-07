@@ -1848,10 +1848,6 @@ def _explode_nodes_within_table(edges, nodes):
     turns['out_edge'] = list(zip(turns['u_out'], turns['v_out'], turns['key_out']))
     # Make OSMID column to keep track of parent node
     turns['osmid'] = turns['v_in']
-    # Join node data to turns
-    turns = turns.merge(
-        nodes.drop(columns=['geometry']), 
-        left_on='osmid', right_index=True, how='left')
     return turns
 
 def _classify_turns_within_table(turns, edges, edge_level, straight_angle):
@@ -1905,23 +1901,23 @@ def _classify_turns_within_table(turns, edges, edge_level, straight_angle):
         ordered_turn_attributes, ['turn_v','turn_proximity','turn_across'])
     # Merge ordered turn attributes back onto turn table
     turns = turns.merge(ordered_turn_attributes, on=['turn_u','turn_v'], how='left')
-    # Only calculate edge level summaries if level field supplied
-    if edge_level:
-        turns['delta_level'] = turns['out_level'] - turns['in_level']
-        max_levels = turns.groupby('in_edge').agg({'in_level':'max', 'out_level':'max'}).rename(
-            columns={'in_level':'max_in_level', 'out_level':'max_out_level'})
-        turns = turns.merge(max_levels, left_on='in_edge', right_index=True)
-        turns['max_level'] = turns[['max_in_level','max_out_level']].max(axis=1)
-        # Calculate the crossing level
-        # (maximum in- or out-level among right and left turns for a given intersection entry)
-        turns = turns.merge(
-            turns[
-                (turns['turn_direction'] == 'left') | 
-                (turns['turn_direction'] == 'right')
-            ].groupby('turn_u').agg({
-                'in_level':'max', 
-                'out_level':'max'}).max(axis=1).rename('cross_level'),
-            left_on='turn_u', right_index=True, how='left')
+    # # Only calculate edge level summaries if level field supplied
+    # if edge_level:
+    #     turns['delta_level'] = turns['out_level'] - turns['in_level']
+    #     max_levels = turns.groupby('in_edge').agg({'in_level':'max', 'out_level':'max'}).rename(
+    #         columns={'in_level':'max_in_level', 'out_level':'max_out_level'})
+    #     turns = turns.merge(max_levels, left_on='in_edge', right_index=True)
+    #     turns['max_level'] = turns[['max_in_level','max_out_level']].max(axis=1)
+    #     # Calculate the crossing level
+    #     # (maximum in- or out-level among right and left turns for a given intersection entry)
+    #     turns = turns.merge(
+    #         turns[
+    #             (turns['turn_direction'] == 'left') | 
+    #             (turns['turn_direction'] == 'right')
+    #         ].groupby('turn_u').agg({
+    #             'in_level':'max', 
+    #             'out_level':'max'}).max(axis=1).rename('cross_level'),
+    #         left_on='turn_u', right_index=True, how='left')
     return turns
 
 def _unpack_lists_into_rows(df, list_columns):
@@ -1951,6 +1947,8 @@ def build_turns_within_table(edges, nodes, edge_level=None, straight_angle=20):
     # Build turns and classify them
     turns = _explode_nodes_within_table(edges, nodes)
     turns = _classify_turns_within_table(turns, edges, edge_level=edge_level, straight_angle=straight_angle)
+    # Drop columns containing tuples, which are redundant and can't easily be stored in a PostgreSQL table
+    turns = turns.drop(columns=['in_edge','out_edge'])
     return turns
 
 def _attach_turn_ids_to_edges(edges, turns):
@@ -1983,9 +1981,48 @@ def combine_edges_and_turns(edges, turns):
     edges = pd.concat([edges,turns], axis=0, sort=False)
     # clean up columns
     edges = edges.drop(columns=[
-        'in_edge','out_edge',
+        # 'in_edge','out_edge',
         'u_in','v_in','key_in',
         'u_out','v_out','key_out'])
     # reset index
     edges = edges.reset_index(drop=True)
     return edges
+
+def _attach_edge_attributes_to_turns(turns, edges, edge_attrs=None, level_attr=None):
+    # Operate on a copy of turns (edges aren't modified)
+    turns = turns.copy()
+    # Only do anything if there are either edge atributes or a level attribute provided
+    if edge_attrs or level_attr:
+        if edge_attrs == 'all':
+            edge_attrs = edges.columns.tolist()
+        elif edge_attrs is not None:
+            # Include the listed attributes
+            edge_attrs = list(set(['u','v','key'] + edge_attrs))
+        else:
+            edge_attrs = ['u','v','key']
+        # Ensure that level attribute is included, if provided
+        edge_attrs = list(set(edge_attrs + [level_attr]))
+        # Add attributes for edges entering turns
+        turns = turns.merge(
+                edges[edge_attrs].add_suffix('_in'),
+                on=['u_in', 'v_in', 'key_in'],
+                how='left')
+        # Add attributes for edges exiting turns
+        turns = turns.merge(
+                edges[edge_attrs].add_suffix('_out'),
+                on=['u_out', 'v_out', 'key_out'],
+                how='left')
+        # Calculate levels
+        if level_attr:
+            turns['in_level'] = turns[level_attr + '_in']
+            # Calculate 
+            turns['out_level'] = turns[level_attr + '_out']
+            # Calculate difference in level across turn
+            turns['delta_level'] = turns['out_level'] - turns['in_level']
+            # Calculate maximum level within the intersection
+            turns = turns.merge(
+                turns[['osmid','in_level','out_level']].groupby('osmid').agg('max').max(axis=1).rename('max_level'),
+                left_on='osmid',
+                right_index=True,
+                how='left')
+    return turns
