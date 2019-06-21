@@ -1019,7 +1019,7 @@ def fill_missing_graph_geometries(G):
     return G
 
 
-def make_backward_edges(edges, u='u', v='v', twoway_column='oneway', twoway_id='False'):
+def make_backward_edges(edges, u='u', v='v', twoway_column='oneway', twoway_id=False):
     """Create a duplicate edge in the opposite direction for every two-way edge
     """
     # Operate on a copy of edges
@@ -1034,6 +1034,12 @@ def make_backward_edges(edges, u='u', v='v', twoway_column='oneway', twoway_id='
             lambda x: LineString(x.coords[::-1]))
     # Append flipped edges back onto edges
     edges = edges.append(two_way_edges, ignore_index=True, sort=False)
+    # Remove duplicates (backward edges that were already in the input dataset)
+    if 'key' in edges:
+        no_duplicates = edges[['u','v','key']].drop_duplicates().drop(columns=['u','v','key'])
+    else:
+        no_duplicates = edges[['u','v']].drop_duplicates().drop(columns=['u','v'])
+    edges = edges.merge(no_duplicates, left_index=True, right_index=True, how='right')
     return edges
 
 
@@ -1822,7 +1828,7 @@ def calculate_edge_levels(G, default_level=0, level_field='highway',
     graph_field_calculate(G, define_level, 'edge_level', nodes=False)
     return G
 
-def _explode_nodes_within_table(edges, nodes):
+def _explode_turns_within_table(edges):
     # Construct in and out identifiers
     # Out
     edges['turn_v'] = 1
@@ -1860,6 +1866,9 @@ def _classify_turns_within_table(turns, edges, edge_level, straight_angle):
         _u_v_azimuths).tolist(), index=edges.index)
     # Attach azimuths and levels to the in and out ends of turns 
     edges['edge'] = list(zip(edges['u'], edges['v'], edges['key']))        
+    
+    # try:
+    
     if edge_level:
         turns[['in_azimuth', 'in_level']] = turns.merge(
             edges.set_index('edge')[['v_azimuth', edge_level]], 
@@ -1869,15 +1878,20 @@ def _classify_turns_within_table(turns, edges, edge_level, straight_angle):
             edges.set_index('edge')[['u_azimuth', edge_level]], 
             left_on='out_edge', right_index=True, how='left'
             )[['u_azimuth', edge_level]]
+    
     else:
-        turns['in_azimuth'] = turns.merge(
-            edges.set_index('edge')['v_azimuth'], 
+        turns[['in_azimuth']] = turns.merge(
+            edges.set_index('edge')[['v_azimuth']],
             left_on='in_edge', right_index=True, how='left'
-            )['v_azimuth']
-        turns['out_azimuth'] = turns.merge(
-            edges.set_index('edge')['u_azimuth'], 
+            )[['v_azimuth']]
+        turns[['out_azimuth']] = turns.merge(
+            edges.set_index('edge')[['u_azimuth']], 
             left_on='out_edge', right_index=True, how='left'
-            )['u_azimuth']
+            )[['u_azimuth']]
+    
+    # except:
+    # 	print(turns.columns, edges.columns)
+    
     # Calculate turn attributes that are NOT dependent on order
     # Relative azimuths
     turns['relative_azimuths'] = (turns['out_azimuth'] - turns['in_azimuth']).map(
@@ -1940,12 +1954,11 @@ def _unpack_lists_into_rows(df, list_columns):
         columns[column] = np.concatenate(df[column].values)
     return pd.DataFrame(columns)
 
-def build_turns_within_table(edges, nodes, edge_level=None, straight_angle=20):
+def build_turns_within_table(edges, edge_level=None, straight_angle=20):
     # Don't modify the original tables
     edges = edges.copy()
-    nodes = nodes.copy()
     # Build turns and classify them
-    turns = _explode_nodes_within_table(edges, nodes)
+    turns = _explode_turns_within_table(edges)
     turns = _classify_turns_within_table(turns, edges, edge_level=edge_level, straight_angle=straight_angle)
     # Drop columns containing tuples, which are redundant and can't easily be stored in a PostgreSQL table
     turns = turns.drop(columns=['in_edge','out_edge'])
@@ -1975,7 +1988,8 @@ def _attach_turn_ids_to_edges(edges, turns):
     edges['turn_v'] = edges['turn_v'].fillna(edges['v'])
     return edges
 
-def combine_edges_and_turns(edges, turns):
+def combine_edges_and_turns(edges, turns, level_attr=None):
+    turns = _attach_edge_attributes_to_turns(turns, edges, level_attr=level_attr)
     edges = _attach_turn_ids_to_edges(edges, turns)
     # stack the edges and turns in the same table
     edges = pd.concat([edges,turns], axis=0, sort=False)
@@ -2025,4 +2039,11 @@ def _attach_edge_attributes_to_turns(turns, edges, edge_attrs=None, level_attr=N
                 left_on='osmid',
                 right_index=True,
                 how='left')
+            # Calculate cross level (maximum of right and left turns for each input node)
+            turns = turns.merge(
+			    turns[turns['turn_direction'].isin(['left','right'])].groupby('turn_u')['out_level'].max().rename('cross_level'),
+			    left_on='turn_u',
+			    right_index=True,
+			    how='left')
+            turns['cross_level'] = turns['cross_level'].fillna(turns['max_level'])
     return turns
