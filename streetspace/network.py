@@ -1964,32 +1964,29 @@ def build_turns_within_table(edges, edge_level=None, straight_angle=20):
     turns = turns.drop(columns=['in_edge','out_edge'])
     return turns
 
-def _attach_turn_ids_to_edges(edges, turns):
-    # Operate on a copy of edges
+def combine_edges_and_turns(edges, turns, level_attr=None, edge_attrs=None):
+    # Operate on copies
     edges = edges.copy()
-    # The u end of each edge inherents the v end of the turn entering it
-    edges_turn_u = edges[['u','v','key']].merge(
-        turns[['u_out', 'v_out', 'key_out', 'turn_u', 'turn_v']], 
-        left_on=['u', 'v', 'key'], 
-        right_on=['u_out', 'v_out', 'key_out'], 
-        how='left').groupby(['u','v']).agg({'turn_v':'first'}).reset_index()
-    edges_turn_u = edges_turn_u.rename(columns={'turn_v':'turn_u'})
-    edges = edges.merge(edges_turn_u, on=['u','v'], how='left')
-    edges['turn_u'] = edges['turn_u'].fillna(edges['u'])
-    # The v end of each edge inherents the u end of the turn leaving from it
-    # edges['turn_v'] = 
-    edges_turn_v = edges[['u','v','key']].merge(
-        turns[['u_in', 'v_in', 'key_in', 'turn_u', 'turn_v']], 
-        left_on=['u', 'v', 'key'], 
-        right_on=['u_in', 'v_in', 'key_in'], 
-        how='left').groupby(['u','v']).agg({'turn_u':'first'}).reset_index()
-    edges_turn_v = edges_turn_v.rename(columns={'turn_u':'turn_v'})
-    edges = edges.merge(edges_turn_v, on=['u','v'], how='left')
-    edges['turn_v'] = edges['turn_v'].fillna(edges['v'])
-    return edges
-
-def combine_edges_and_turns(edges, turns, level_attr=None):
-    turns = _attach_edge_attributes_to_turns(turns, edges, level_attr=level_attr)
+    turns = turns.copy()
+    # Reduce turns to those that have both "in" and "out" edges in the
+    # provided edges table. In other words, turns should match the edges.
+    # See which turns have an "in" edge in the edges table
+    turns_with_an_in_edge = turns.merge(
+        edges[['u','v','key']].add_suffix('_in'),
+        on=['u_in','v_in','key_in'],
+        how='inner')
+    # See which turns have an "out" edge in the edges table
+    turns_with_an_out_edge = turns.merge(
+        edges[['u','v','key']].add_suffix('_out'),
+        on=['u_out','v_out','key_out'],
+        how='inner')
+    # Keep with both in and out edges
+    turns = turns_with_an_in_edge.merge(
+        turns_with_an_out_edge[['turn_u','turn_v']],
+        on=['turn_u','turn_v'],
+        how='inner')
+    # Attach edge attributes to turns and turn IDs to edges
+    turns = _attach_edge_attributes_to_turns(turns, edges, level_attr=level_attr, edge_attrs=edge_attrs)
     edges = _attach_turn_ids_to_edges(edges, turns)
     # stack the edges and turns in the same table
     edges = pd.concat([edges,turns], axis=0, sort=False)
@@ -2015,17 +2012,17 @@ def _attach_edge_attributes_to_turns(turns, edges, edge_attrs=None, level_attr=N
         else:
             edge_attrs = ['u','v','key']
         # Ensure that level attribute is included, if provided
-        edge_attrs = list(set(edge_attrs + [level_attr]))
+        edge_attrs = list(set(edge_attrs + [level_attr]))               
         # Add attributes for edges entering turns
         turns = turns.merge(
-                edges[edge_attrs].add_suffix('_in'),
-                on=['u_in', 'v_in', 'key_in'],
-                how='left')
+                    edges[edge_attrs].add_suffix('_in'),
+                    on=['u_in', 'v_in', 'key_in'],
+                    how='left')
         # Add attributes for edges exiting turns
         turns = turns.merge(
-                edges[edge_attrs].add_suffix('_out'),
-                on=['u_out', 'v_out', 'key_out'],
-                how='left')
+                    edges[edge_attrs].add_suffix('_out'),
+                    on=['u_out', 'v_out', 'key_out'],
+                    how='left')       
         # Calculate levels
         if level_attr:
             turns['in_level'] = turns[level_attr + '_in']
@@ -2041,9 +2038,54 @@ def _attach_edge_attributes_to_turns(turns, edges, edge_attrs=None, level_attr=N
                 how='left')
             # Calculate cross level (maximum of right and left turns for each input node)
             turns = turns.merge(
-			    turns[turns['turn_direction'].isin(['left','right'])].groupby('turn_u')['out_level'].max().rename('cross_level'),
-			    left_on='turn_u',
-			    right_index=True,
-			    how='left')
+                turns[turns['turn_direction'].isin(['left','right'])].groupby('turn_u')['out_level'].max().rename('cross_level'),
+                left_on='turn_u',
+                right_index=True,
+                how='left')
             turns['cross_level'] = turns['cross_level'].fillna(turns['max_level'])
     return turns
+
+def _attach_turn_ids_to_edges(edges, turns):
+    # Operate on a copy of edges
+    edges = edges.copy()
+    # The u end of each edge inherents the v end of the turn entering it
+    edges_turn_u = edges[['u','v','key']].merge(
+        turns[['u_out', 'v_out', 'key_out', 'turn_u', 'turn_v']], 
+        left_on=['u', 'v', 'key'], 
+        right_on=['u_out', 'v_out', 'key_out'], 
+        how='left').groupby(['u','v']).agg({'turn_v':'first'}).reset_index()
+    edges_turn_u = edges_turn_u.rename(columns={'turn_v':'turn_u'})
+    edges = edges.merge(edges_turn_u, on=['u','v'], how='left')
+    edges['turn_u'] = edges['turn_u'].fillna(edges['u'])
+    # The v end of each edge inherents the u end of the turn leaving from it
+    # edges['turn_v'] = 
+    edges_turn_v = edges[['u','v','key']].merge(
+        turns[['u_in', 'v_in', 'key_in', 'turn_u', 'turn_v']], 
+        left_on=['u', 'v', 'key'], 
+        right_on=['u_in', 'v_in', 'key_in'], 
+        how='left').groupby(['u','v']).agg({'turn_u':'first'}).reset_index()
+    edges_turn_v = edges_turn_v.rename(columns={'turn_u':'turn_v'})
+    edges = edges.merge(edges_turn_v, on=['u','v'], how='left')
+    edges['turn_v'] = edges['turn_v'].fillna(edges['v'])
+    return edges
+
+def correct_edge_direction(edges, nodes, precision=6):
+    # Operate on a copy
+    edges = edges.copy()
+    # Attach u points
+    edges = edges.merge(nodes['geometry'].rename('u_point'), left_on = 'u', right_index=True)
+    # Initiate list to store corrected geometries
+    geometries = []
+    for edge in edges.itertuples():
+        u_point = edge.u_point
+        u_endpoint = endpoints(edge.geometry)[0]
+        # Check geometric equivalence
+        if u_point.almost_equals(u_endpoint, precision):
+            geometries.append(reverse_linestring(edge.geometry))
+        else:
+            geometries.append(edge.geometry)
+    # Set the edge geometry to the corrected version
+    edges['geometry'] = geometries
+    # Remove points column
+    edges = edges.drop(columns=['u_point'])
+    return edges
