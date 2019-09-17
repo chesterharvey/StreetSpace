@@ -522,3 +522,43 @@ def no_space_column_names(df):
     df.columns = [x.replace(' ', '_') for x in df.columns]
     return df
 
+
+def split_dataframe_lists(df, list_column, keep_columns=False, keep_indices=False):
+    """Splits a column with lists into rows
+    
+    Modified from https://gist.github.com/jlln/338b4b0b55bd6984f883#gistcomment-2676729
+    
+    df : Input dataframe
+    list_column : Column containing lists
+    keep_columns : Column name or list of column names to keep alongside the split lists
+    keep_indices : If True, will keep indexes referencing original df rows and list positions.
+        If a list with two items, will use these as the column names. 
+    """
+    
+    # create a new dataframe with each item in a seperate column, dropping rows with missing values
+    col_df = pd.DataFrame(df[list_column].dropna().tolist(),index=df[list_column].dropna().index)
+
+    # create a series with columns stacked as rows         
+    stacked = col_df.stack()
+
+    # make into a dataframe
+    new_df = pd.DataFrame(stacked, columns=[list_column])
+    
+    # Reset index
+    new_df = new_df.reset_index()
+    
+    # Merge on old columns
+    if keep_columns:
+        keep_columns = listify(keep_columns)
+        new_df = new_df.merge(df[keep_columns], left_on='level_0', right_index=True)
+    
+    # Rename index fields, if desired
+    if keep_indices:
+        if keep_indices == True:
+            keep_indices = ['df_index', 'list_index']
+        new_df = new_df.rename(columns={'level_0':keep_indices[0],'level_1':keep_indices[1]})
+    else:
+        new_df = new_df.drop(columns=['level_0','level_1'])
+    
+    return new_df
+
