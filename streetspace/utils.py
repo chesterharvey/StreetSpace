@@ -523,7 +523,7 @@ def no_space_column_names(df):
     return df
 
 
-def split_dataframe_lists(df, list_column, keep_columns=False, keep_indices=False):
+def df_split_lists_into_rows(df, list_column, keep_columns=False, keep_indices=False):
     """Splits a column with lists into rows
     
     Modified from https://gist.github.com/jlln/338b4b0b55bd6984f883#gistcomment-2676729
@@ -561,4 +561,13 @@ def split_dataframe_lists(df, list_column, keep_columns=False, keep_indices=Fals
         new_df = new_df.drop(columns=['level_0','level_1'])
     
     return new_df
+
+ def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_column=True):
+ 	"""Splits same-length lists within a column into seperate columns
+ 	"""
+    df = df.copy()
+    df[new_column_names] = pd.DataFrame(df[list_column].tolist(), index=df.index)
+    if delete_list_column:
+        df = df.drop(columns=[list_column])
+    return df
 
