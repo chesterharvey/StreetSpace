@@ -562,7 +562,7 @@ def df_split_lists_into_rows(df, list_column, keep_columns=False, keep_indices=F
     
     return new_df
 
- def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_column=True):
+def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_column=True):
  	"""Splits same-length lists within a column into seperate columns
  	"""
     df = df.copy()
