@@ -367,7 +367,7 @@ def list_sindex(geometries):
     return idx
 
 
-def spaced_points_along_line(linestring, spacing, centered = False):
+def spaced_points_along_line(linestring, spacing, centered=False, return_lin_refs=False):
     """Create equally spaced points along a Shapely LineString.
 
     If a list of LineStrings is entered, the function will construct points
@@ -384,16 +384,27 @@ def spaced_points_along_line(linestring, spacing, centered = False):
         * ``False``: Points/Spaces aligned with the start of the `linestring`.
         * ``'Point'``: Points aligned with the midpoint of the `linestring`.
         * ``'Space'``: Spaces aligned with the midpoint of the `linestring`.
+    lin_refs : :obj:`bool`, optional, default = ``False``
+        * ``False``: Linear references of points will not be returned
+        * ``True``: Linear references of points will be returned
 
     Returns
     ----------
-    :obj:`list`
-        List of :class:`shapely.geometry.Point` objects.
+    if lin_refs=False:
+        :obj:`list`
+            List of points
+    if lin_refs=True:
+        :obj:`list`
+            List of points
+        :obj:`list`
+            List of linear references for points (floats)
     """
     if isinstance(linestring, LineString):
         linestring = [linestring] # If only one LineString, make into list
+    all_lin_refs = []
     all_points = []
     for l, line in enumerate(linestring):
+        lin_refs = []
         points = []
         length = line.length
         for p in range(int(ceil(length/spacing))):
@@ -407,12 +418,18 @@ def spaced_points_along_line(linestring, spacing, centered = False):
                 # Space the starting point from the end so the points are
                 # centered on the edge
                 starting_point = (length - (length // spacing) * spacing) / 2
-            x, y = line.interpolate(starting_point + (p * spacing)).xy
+            lin_ref = starting_point + (p * spacing)
+            x, y = line.interpolate(lin_ref).xy
             point = sh.geometry.Point(x[0], y[0])
             # Store point in list
+            lin_refs.append(lin_ref)
             points.append(point)
+        all_lin_refs.extend(lin_refs)
         all_points.extend(points)
-    return all_points
+    if not return_lin_refs:
+        return all_points
+    else:
+        return all_points, all_lin_refs
 
 
 def azimuth(linestring, degrees=True):
