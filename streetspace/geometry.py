@@ -382,8 +382,8 @@ def spaced_points_along_line(linestring, spacing, centered=False, return_lin_ref
         Spacing for points along the `linestring`.
     centered : :obj:`bool` or :obj:`str`, optional, default = ``False``
         * ``False``: Points/Spaces aligned with the start of the `linestring`.
-        * ``'Point'``: Points aligned with the midpoint of the `linestring`.
-        * ``'Space'``: Spaces aligned with the midpoint of the `linestring`.
+        * ``'point' or True``: Points aligned with the midpoint of the `linestring`.
+        * ``'space'``: Spaces aligned with the midpoint of the `linestring`.
     lin_refs : :obj:`bool`, optional, default = ``False``
         * ``False``: Linear references of points will not be returned
         * ``True``: Linear references of points will be returned
