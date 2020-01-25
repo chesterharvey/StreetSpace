@@ -1779,3 +1779,35 @@ def identify_nearest_points(gdf_a, gdf_b, b_column, merge_original=False):
     if merge_original:
         df = gdf_a.merge(df, left_index=True, right_index=True)
     return df
+
+
+def aerial_count_interpolation(source_gdf, count_field, dest_gdf):
+    """Interpolate counts from `source_gdf` to `dest_gdf` polygons
+    
+    `source_gdf` : geodataframe with polygon geometries and a numeric field with counts
+    `count_field` : field in `source_gdf` with counts
+    `dest_gdf` : geodataframe with polygon geometries into which counts will be interpolated
+
+    The function interpolates counts based on the proportion of overlap between `source_gdf` and
+    `dest_gdf` polygons.
+
+    """
+    # Specify IDs for each input dataframe
+    source_gdf['ai_source_index'] = range(0, len(source_gdf))
+    dest_gdf['ai_dest_index'] = range(0, len(dest_gdf))
+    # Calculate areas within the source dataframe
+    source_gdf['ai_source_area'] = source_gdf.geometry.area
+    # Union the shapes
+    union_df = gpd.overlay(source_gdf, dest_gdf, how='union')
+    # Calculate areas within the unioned parts
+    union_df['ai_union_area'] = union_df.geometry.area
+    # Estimate count for each unioned part
+    union_df['ai_union_count'] = union_df[count_field] / union_df['ai_source_area'] * union_df['ai_union_area']
+    # Sum up parts for destination ids
+    result_df = union_df.groupby('ai_dest_index').agg({'ai_union_count':sum})
+    # Add results back onto destination dataframe
+    dest_gdf = gpd.GeoDataFrame(dest_gdf.merge(result_df, on='ai_dest_index'), geometry='geometry', crs=dest_gdf.crs)
+    # Rename and drop columns
+    dest_gdf[count_field] = dest_gdf['ai_union_count']
+    dest_gdf = dest_gdf.drop(columns=['ai_dest_index','ai_union_count'])
+    return dest_gdf
