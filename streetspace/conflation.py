@@ -844,7 +844,16 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
             else:
                 return row.geometry
         
-        operating_target_features['geometry'] = operating_target_features.apply(replace_target_segs, axis=1)
+        operating_target_features['geometry'] = operating_target_features.apply(replace_target_segs, axis=1) # This might be the place to add back the unmatched portions of partially-matched target features
+
+        def add_unmatched_portions_of_target_segs(row):
+        	# See whether the matched segments is smaller than the whole segment
+        	if pd.notnull(row.t_prop) and row.t_prop < 1.0:
+        		# Figure out what portion of the segment the match doesn't cover
+
+        		# Might need to group with other records relating to the same target feature to see what other portions might have been matched?
+
+
 
         # For each unique target geometry, delete all matches except the closest one
         # (expanded targets are deleted if they don't have the closest match)

@@ -570,3 +570,26 @@ def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_c
     if delete_list_column:
         df = df.drop(columns=[list_column])
     return df
+
+def merge_intervals(intervals):
+    """Merges a list of intervals stored as tuples
+    
+    Intervals that overlap will be merged into a single all-encompassing interval.
+    Those that do not overlap will be left as standalone tuples.
+    
+    Returns a generator object
+    
+    Adapted from https://codereview.stackexchange.com/questions/69242/merging-overlapping-intervals
+    """
+    sorted_intervals = sorted(intervals, key=operator.itemgetter(0))
+    if not sorted_intervals:  # no intervals to merge
+        return
+    # low and high represent the bounds of the current run of merges
+    low, high = sorted_intervals[0]
+    for iv in sorted_intervals[1:]:
+        if iv[0] <= high:  # new interval overlaps current run
+            high = max(high, iv[1])  # merge with the current run
+        else:  # current run is over
+            yield low, high  # yield accumulated interval
+            low, high = iv  # start new run
+    yield low, high  # end the final run
