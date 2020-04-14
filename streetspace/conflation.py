@@ -837,23 +837,70 @@ def match_lines_by_hausdorff(target_features, match_features, distance_tolerance
     # Only analyze matches if there are any
     if len(operating_target_features) > 0:
 
+        # Identify and add records for unmatched portions of target features
+
+        # Get target records that have unmatched portions
+        unmatched_segments = operating_target_features.copy()
+        unmatched_segments = unmatched_segments[
+            (unmatched_segments['t_prop'].notnull()) & 
+            (unmatched_segments['t_prop'] < 1)]
+
+        new_target_records = []
+
+        # Iterate through groups of target records
+        for target_index, target_group in unmatched_segments.groupby('target_index'):
+
+            # Get the linref intervals associated with each of the matched segments
+            matched_linrefs = target_group['t_linref'].tolist()
+            
+            # Combine the intervals
+            matched_linrefs_merged = merge_intervals(matched_linrefs)
+            
+            # Get the original target geometry
+            orig_target_geometry = target_group.iloc[0]['geometry']
+            
+            # Construct linref intervals for the unmatched parts
+            geometry_extents = [0, orig_target_geometry.length]
+            matched_linrefs_list = [linref for tup in matched_linrefs_merged for linref in tup]
+            all_linrefs_list = sorted(geometry_extents + matched_linrefs_list)
+            unmatched_linrefs = [
+                (all_linrefs_list[i], all_linrefs_list[i + 1]) 
+                for i in range(0, len(all_linrefs_list), 2)] 
+            unmatched_lines = [
+                split_line_at_dists(orig_target_geometry, pair)[1]
+                for pair in unmatched_linrefs]
+
+            # For each unmatched line, make a new target record
+            for unmatched_line, unmatched_linref in zip(unmatched_lines, unmatched_linrefs):
+                
+                if unmatched_line.length > 1:
+                
+                    # Get all the attributes associated with the original target record
+                    new_target_record = target_group.iloc[0].to_dict()
+
+                    # Modify the match attributes
+                    new_target_record['match_index'] = np.nan
+                    new_target_record['match_type'] = np.nan
+                    new_target_record['h_tm'] = np.nan
+                    new_target_record['t_prop'] = np.nan
+                    new_target_record['t_seg'] = unmatched_line
+                    new_target_record['t_linref'] = unmatched_linref
+                    new_target_record['h_mt'] = np.nan
+                    new_target_record['m_prop'] = np.nan
+                    new_target_record['m_seg'] = np.nan
+                    new_target_record['m_linref'] = np.nan
+                    new_target_record['geometry'] = orig_target_geometry
+
+                    new_target_records.append(new_target_record)
+
+        # Add new target records to operating features
+        new_target_records = gpd.GeoDataFrame(new_target_records, geometry='geometry')
+        operating_target_features = pd.concat([operating_target_features, new_target_records])
+
         # Replace target geometries with target segments (if not NaN)
-        def replace_target_segs(row):
-            if pd.notnull(row.t_seg):
-                return row.t_seg
-            else:
-                return row.geometry
-        
-        operating_target_features['geometry'] = operating_target_features.apply(replace_target_segs, axis=1) # This might be the place to add back the unmatched portions of partially-matched target features
-
-        def add_unmatched_portions_of_target_segs(row):
-        	# See whether the matched segments is smaller than the whole segment
-        	if pd.notnull(row.t_prop) and row.t_prop < 1.0:
-        		# Figure out what portion of the segment the match doesn't cover
-
-        		# Might need to group with other records relating to the same target feature to see what other portions might have been matched?
-
-
+        ##### This appears to be duplicated below; not sure if it needs to happen twice
+        operating_target_features['geometry'] = operating_target_features.apply(
+            lambda row: row['t_seg'] if isinstance(row['t_seg'], LineString) else row['geometry'], axis=1)
 
         # For each unique target geometry, delete all matches except the closest one
         # (expanded targets are deleted if they don't have the closest match)
