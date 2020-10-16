@@ -1811,3 +1811,43 @@ def aerial_count_interpolation(source_gdf, count_field, dest_gdf):
     dest_gdf[count_field] = dest_gdf['ai_union_count']
     dest_gdf = dest_gdf.drop(columns=['ai_dest_index','ai_union_count'])
     return dest_gdf
+
+
+def gdf_3d_to_2d(gdf):
+    '''Convert a geodataframe with 3D polygons or linestrings to 2D geometries
+
+    Based on https://gist.github.com/rmania/8c88377a5c902dfbc134795a7af538d8
+
+    TO-DO: Add point and multipoint conversion
+    '''
+    gdf = gdf.copy()
+    geometry = gdf.geometry
+    new_geo = []
+    for p in geometry:
+        if p.has_z:
+            if p.geom_type == 'Polygon':
+                lines = [xy[:2] for xy in list(p.exterior.coords)]
+                new = Polygon(lines)
+                new_geo.append(new)
+            elif p.geom_type == 'MultiPolygon':
+                new_multi_p = []
+                for ap in p:
+                    lines = [xy[:2] for xy in list(ap.exterior.coords)]
+                    new = Polygon(lines)
+                    new_multi.append(new)
+                new_geo.append(MultiPolygon(new_multi_p))
+            elif p.geom_type == 'LineString':
+                points = [xy[:2] for xy in list(p.coords)]
+                new = LineString(points)
+                new_geo.append(new)
+            elif p.geom_type == 'MultiLineString':
+                new_multi_p = []
+                for ap in p:
+                    points = [xy[:2] for xy in list(ap.coords)]
+                    new = LineString(points)
+                    new_multi.append(new)
+                new_geo.append(MultiLineString(new_multi))
+            # elif p.geom_type == 'Point': ####### TO-DO
+            # elif p.geom_type == 'MultiPoint': ####### TO-DO
+    gdf.geometry = new_geo
+    return gdf
