@@ -575,6 +575,56 @@ def midpoint(linestring):
     return linestring.interpolate(linestring.length / 2)
 
 
+def gdf_spaced_points_along_lines(gdf, spacing, centered=False, return_lin_refs=False):
+    """Create equally-spaced Points along LineStrings in a GeoDataFrame.
+    Attributes in accompanying columns are copied to all children of each
+    parent record.
+    Parameters
+    ----------
+    gdf : :class:`geopandas.GeoDataFrame`
+        Geometry type must be :class:`shapely.geometry.LineString`
+    spacing : :obj:`float`
+        Spacing for points along the `linestring`.
+    centered : :obj:`bool` or :obj:`str`, optional, default = ``False``
+        * ``False``: Points/Spaces aligned with the start of the `linestring`.
+        * ``'point' or True``: Points aligned with the midpoint of the `linestring`.
+        * ``'space'``: Spaces aligned with the midpoint of the `linestring`.
+    lin_refs : :obj:`bool`, optional, default = ``False``
+        * ``False``: Linear references of points will not be returned a column
+        * ``True``: Linear references of points will be returned
+    Returns
+    -------
+    :class:`geopandas.GeoDataFrame`
+    """
+    # initiate new dataframe to hold points
+    points_gdf = gpd.GeoDataFrame(data=None, columns=gdf.columns, 
+                                geometry = 'geometry', crs=gdf.crs)
+    for i, line in gdf.iterrows():
+        if return_lin_refs:
+            points, lin_refs = spaced_points_along_line(
+                line['geometry'], 
+                spacing, 
+                centered = centered,
+                return_lin_refs=True)
+        else:
+            points = spaced_points_along_line(
+                line['geometry'], 
+                spacing, 
+                centered = centered)
+        # copy columns from the original geodataframe  
+        point_records = gpd.GeoDataFrame(
+            data=[line]*len(points), columns=gdf.columns, 
+            geometry = 'geometry', crs=gdf.crs)
+        # replace the geometry for these copied records with the segment geometry
+        point_records['geometry'] = points
+        # add lin_ref column if applicable
+        if return_lin_refs:
+            point_records['lin_ref'] = lin_refs
+        # add new points to full list
+        points_gdf = points_gdf.append(point_records, ignore_index=True)
+    return points_gdf
+
+
 def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
     """Split LineStrings in a GeoDataFrame into equal-length peices.
 
