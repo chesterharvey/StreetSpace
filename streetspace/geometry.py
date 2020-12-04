@@ -626,7 +626,7 @@ def gdf_spaced_points_along_lines(gdf, spacing, centered=False, return_lin_refs=
 
 
 def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
-    """Split LineStrings in a GeoDataFrame into equal-length peices.
+    """Split LineStrings in a GeoDataFrame into equal-length segments.
 
     Attributes in accompanying columns are copied to all children of each
     parent record.
@@ -639,13 +639,19 @@ def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
         Length of segments to create.
     centered : :obj:`bool` or :obj:`str`, optional, default = ``False``
         * ``False`` : Not centered; points are spaced evenly from the start of each LineString 
-        * ``'Point'`` : A point is located at each LineString midpoint
-        * ``'Space'`` : A gap between points is centered on each LinesString
+        * ``'end'`` : A segment end is centered on each LineString
+        * ``'segment'`` : A segment is centered on each LinesString
 
     Returns
     -------
     :class:`geopandas.GeoDataFrame`
     """
+    
+    if centered == 'end':
+        centered = 'point'
+    elif centered == 'segment'
+        centered = 'space'
+
     # initiate new dataframe to hold segments
     segments = gpd.GeoDataFrame(data=None, columns=gdf.columns, 
                                 geometry = 'geometry', crs=gdf.crs)
