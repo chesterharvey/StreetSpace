@@ -649,7 +649,7 @@ def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
     
     if centered == 'end':
         centered = 'point'
-    elif centered == 'segment'
+    elif centered == 'segment':
         centered = 'space'
 
     # initiate new dataframe to hold segments
