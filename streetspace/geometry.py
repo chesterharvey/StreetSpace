@@ -1289,7 +1289,22 @@ def normalize_azimuth(azimuth, zero_center=False):
     if zero_center:
         if azimuth > 180:
             azimuth -= 360
-    return azimuth      
+    return azimuth
+
+
+def normalize_azimuth_array(azimuths, zero_center=False):
+    """Normalize an array of azimuths in degrees so they falls between 0 and 360
+    
+    ``azimuths`` should be a NumPy array or eqivalent (Pandas Series or DataFrame)
+    
+    If ``zero_center=True``, azimuths will be normalized
+    between -180 and 180.
+    """
+    azimuths = azimuths.copy()
+    azimuths = np.where((azimuths > 360) | (azimuths < 0) , azimuths % 360, azimuths) 
+    if zero_center:
+        azimuths = np.where(azimuths > 180, azimuths - 360, azimuths)
+    return azimuths      
 
 
 def azimuth_difference(azimuth_a, azimuth_b, directional=True):
