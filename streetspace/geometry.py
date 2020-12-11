@@ -342,7 +342,7 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
     else:
         return None, None, None
 
-def closest_point_along_line_vectorized(line_start, line_end, point, constrain_to_segment=True):
+def closest_point_along_line_vectorized(point, line_start, line_end, constrain_to_segment=True):
     '''Find coordinates for the point along a line segment that is closest to the input point
     
     adapted from: https://stackoverflow.com/questions/28931007/how-to-find-the-closest-point-on-a-line-segment-to-an-arbitrary-point
