@@ -342,6 +342,30 @@ def closest_point_along_lines(search_point, lines, search_distance=None,
     else:
         return None, None, None
 
+def closest_point_along_line_vectorized(line_start, line_end, point, constrain_to_segment=True):
+    '''Find coordinates for the point along a line segment that is closest to the input point
+    
+    adapted from: https://stackoverflow.com/questions/28931007/how-to-find-the-closest-point-on-a-line-segment-to-an-arbitrary-point
+    
+    All required inputs are 2D coordinate tuples (x,y); x and y may be floats or arrays.
+    
+    If constrain_to_segment is True, the closest point is constrained between the defined start and end of the line.
+    If False, the line is treated as an infitinitely long vector extending beyond the defined ends and the closest point may be outside these bounds.
+    '''
+    x1, y1 = line_start
+    x2, y2 = line_end
+    x3, y3 = point
+    dx = x2 - x1
+    dy = y2 - y1
+    d2 = dx*dx + dy*dy
+    nx = ((x3-x1)*dx + (y3-y1)*dy) / d2
+    if constrain_to_segment:
+        if isinstance(nx, float):
+            nx = min(1, max(0, nx))          
+        else:
+            nx = np.clip(nx, 0, 1)
+    return (dx*nx + x1, dy*nx + y1)
+
 def list_sindex(geometries):
     """Create a spatial index for a list of geometries.
 
@@ -1922,3 +1946,5 @@ def gdf_3d_to_2d(gdf):
             # elif p.geom_type == 'MultiPoint': ####### TO-DO
     gdf.geometry = new_geo
     return gdf
+
+
