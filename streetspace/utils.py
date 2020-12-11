@@ -579,5 +579,5 @@ def collapse_hierarchical_column_names(df, delimiter='_'):
     Each level of the of the original names is separated by the delimiter
     '''
     df = df.copy()
-    df.columns = [delimiter.join((lambda x: (str(y) for y in x))(col)).rstrip(delimiter).strip() for col in building_distances_at_points.columns.values]
+    df.columns = [delimiter.join((lambda x: (str(y) for y in x))(col)).rstrip(delimiter).strip() for col in df.columns.values]
     return df
