@@ -570,3 +570,12 @@ def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_c
     if delete_list_column:
         df = df.drop(columns=[list_column])
     return df
+
+def collapse_hierarchical_column_names(df, delimiter='_'):
+    '''Collapse multi-level column names in Pandas DataFrame into single-level column names
+    
+    Each level of the of the original names is separated by the delimiter
+    '''
+    df = df.copy()
+    df.columns = [delimiter.join((lambda x: (str(y) for y in x))(col)).rstrip(delimiter).strip() for col in building_distances_at_points.columns.values]
+    return df
