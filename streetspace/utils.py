@@ -574,6 +574,8 @@ def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_c
 def collapse_hierarchical_column_names(df, delimiter='_'):
     '''Collapse multi-level column names in Pandas DataFrame into single-level column names
     
+    Adapted from: https://stackoverflow.com/questions/14507794/pandas-how-to-flatten-a-hierarchical-index-in-columns
+
     Each level of the of the original names is separated by the delimiter
     '''
     df = df.copy()
