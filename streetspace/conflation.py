@@ -5,7 +5,7 @@
 ##############################################################################
 
 from .geometry import *
-# import usaddress
+import usaddress
 from fuzzywuzzy import fuzz
 import shapely as sh
 import itertools
@@ -1528,37 +1528,35 @@ def _lookup_street_type(value):
         value = _lookup(value, street_types)
     return value.title()
     
-# def standardize_streetname(name):
-#     """Standardize street names with title case and common abbreviations.
+def standardize_streetname(name):
+    """Standardize street names with title case and common abbreviations.
 
-#     *** Had to remove because of Docker installation issues with usaddress. ***
+    Parameters
+    ----------
+    name : :obj:`str`
+        Street name to standardize
 
-#     Parameters
-#     ----------
-#     name : :obj:`str`
-#         Street name to standardize
-
-#     Results
-#     -------
-#     :obj:`str`
-#         Standardized street name.
-#         If unable to standardize, original street name.
-#     """
-#     try:
-#         tagged_streetname, _ = usaddress.tag(name)
-#         for key, value in tagged_streetname.items():
-#             if key == 'StreetNamePreModifier':
-#                 tagged_streetname[key] = value.title()
-#             elif key == 'StreetNamePreDirectional':
-#                 tagged_streetname[key] = _lookup_direction(value)
-#             elif key == 'StreetName':
-#                 tagged_streetname[key] = value.title()
-#             elif key == 'StreetNamePostType':
-#                 tagged_streetname[key] = _lookup_street_type(value)
-#             else:
-#                 tagged_streetname[key] = value
-#         return ' '.join(tagged_streetname.values())
-#     except usaddress.RepeatedLabelError as e:
-#         # If tagging streetname parts fails, return original string
-#         return e.original_string
+    Results
+    -------
+    :obj:`str`
+        Standardized street name.
+        If unable to standardize, original street name.
+    """
+    try:
+        tagged_streetname, _ = usaddress.tag(name)
+        for key, value in tagged_streetname.items():
+            if key == 'StreetNamePreModifier':
+                tagged_streetname[key] = value.title()
+            elif key == 'StreetNamePreDirectional':
+                tagged_streetname[key] = _lookup_direction(value)
+            elif key == 'StreetName':
+                tagged_streetname[key] = value.title()
+            elif key == 'StreetNamePostType':
+                tagged_streetname[key] = _lookup_street_type(value)
+            else:
+                tagged_streetname[key] = value
+        return ' '.join(tagged_streetname.values())
+    except usaddress.RepeatedLabelError as e:
+        # If tagging streetname parts fails, return original string
+        return e.original_string
 
