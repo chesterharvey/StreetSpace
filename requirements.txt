@@ -7,5 +7,5 @@ Rtree>=0.8.3
 Shapely>=1.6
 osmnx>=0.7.1
 usaddress
-fuzzywuzzy
+#fuzzywuzzy
 scipy
