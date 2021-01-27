@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import geopandas as gpd
 import pandas as pd
 import osmnx as ox
-# import mplleaflet
+import mplleaflet
 import random
 import matplotlib
 import math
@@ -1228,8 +1228,8 @@ def plot_shapes(shapes, ax=None, axis_off=True, size=8, extent=None,
                 label_features(
                     ax, shape, labels[i+1], (offset,offset), color=colors[i+1], ha='left')
     
-    # if leaflet:
-    #     mplleaflet.show(fig=fig, crs=shapes[0].crs, tiles='cartodb_positron')
+    if leaflet:
+        mplleaflet.show(fig=fig, crs=shapes[0].crs, tiles='cartodb_positron')
     
     else:
         if extent:
