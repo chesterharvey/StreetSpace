@@ -1947,4 +1947,18 @@ def gdf_3d_to_2d(gdf):
     gdf.geometry = new_geo
     return gdf
 
+def gdf_cast_singlpart_geometry_to_multipart(gdf, geometry_column='geometry'):
+    '''Convert any singlepart geometries in a mixed-type geodataframe to multipart.
+
+    Based on https://stackoverflow.com/questions/7571635/fastest-way-to-check-if-a-value-exists-in-a-list
+    '''
+    gdf = gdf.copy()
+    if type(gdf.iloc[0][geometry_column]) in [Point, MultiPoint]:
+        gdf[geometry_column] = [MultiPoint([feature]) if type(feature) == Point else feature for feature in gdf[geometry_column]]
+    elif type(gdf.iloc[0][geometry_column]) in [LineString, MultiLineString]:
+        gdf[geometry_column] = [MultiLineString([feature]) if type(feature) == LineString else feature for feature in gdf[geometry_column]]
+    elif type(gdf.iloc[0][geometry_column]) in [Polygon, MultiPolygon]:
+        gdf[geometry_column] = [MultiPolygon([feature]) if type(feature) == Polygon else feature for feature in gdf[geometry_column]]
+    return gdf
+
 
