@@ -806,7 +806,7 @@ def collect_route_attributes(route, G, summaries=None):
     node_pairs = make_node_pairs_along_route(route)
     
     # Get edge data either from a graph or a dataframe
-    if isinstance(G, MultiDiGraph):
+    if isinstance(G, MultiDiGraph) or isinstance(G, DiGraph):
         route_data = [G.get_edge_data(u, v) for u,v, in node_pairs]
     elif isinstance(G, GeoDataFrame):
         edges = G
@@ -821,10 +821,10 @@ def collect_route_attributes(route, G, summaries=None):
     attribute_fields = dict(zip(summaries.keys(), ['object'] * len(summaries)))
     collected_attributes = empty_array(len(route_data), attribute_fields)
     # Iterate through edges along route
-    for i, edge in enumerate(route_data):       
-        # If there are parallel edges, select shortest one
+    for i, edge in enumerate(route_data):
         if edge is not None:
-            if len(edge) > 1:
+            # If there are parallel edges, select shortest one
+            if len(edge) > 1 and isinstance(G, MultiDiGraph):
                 keys = []
                 lengths = []
                 for key, data in edge.items():
@@ -837,19 +837,32 @@ def collect_route_attributes(route, G, summaries=None):
             
             # Collect each attribute
             for name, (_, attribute) in summaries.items():
-                # Access whatever key remains in the edge dictionary
-                for key in edge.keys():
+                if isinstance(G, MultiDiGraph):
+                    # Access whatever key remains in the edge dictionary
+                    for key in edge.keys():
+                        if isinstance(attribute, tuple):
+                            attributes = []
+                            for a in attribute:
+                                if a in edge[key]:
+                                    attributes.append(edge[key][a])
+                                else:
+                                    attributes.append(edge[key][None])
+                            collected_attributes[name][i] = tuple(attributes)
+                        else:
+                            if attribute in edge[key]:
+                                collected_attributes[name][i] = edge[key][attribute]
+                elif isinstance(G, DiGraph):
                     if isinstance(attribute, tuple):
                         attributes = []
                         for a in attribute:
-                            if a in edge[key]:
-                                attributes.append(edge[key][a])
+                            if a in edge:
+                                attributes.append(edge[a])
                             else:
-                                attributes.append(edge[key][None])
+                                attributes.append(edge[None])
                         collected_attributes[name][i] = tuple(attributes)
                     else:
-                        if attribute in edge[key]:
-                            collected_attributes[name][i] = edge[key][attribute]
+                        if attribute in edge:
+                            collected_attributes[name][i] = edge[attribute]
                                
     # Summarize collected attributes
     collected_summaries = []
