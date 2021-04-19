@@ -782,7 +782,7 @@ def make_node_pairs_with_lowest_cost_keys_along_route(route, g, cost='length'):
     g: MultiGraph or MultiDiGraph
     cost: edge attribute storing cost (str)
     """
-    edges = smake_node_pairs_along_route(route)
+    edges = make_node_pairs_along_route(route)
     edges_with_keys = []
     for edge in edges:
         u, v = edge
