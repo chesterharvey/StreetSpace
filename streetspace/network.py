@@ -764,6 +764,27 @@ def make_node_pairs_along_route(route):
     return list(zip(route[:-1], route[1:]))
 
 
+def make_node_pairs_with_lowest_cost_keys_along_route(route, g, cost='length'):
+    """Converts a list of nodes into a list of tuples for indexing edges along a route.
+
+    Designed for MultiGraphs or MultiDiGraphs, in which edges must be specified with
+    3-value tuples: u, v, and key. Given (u,v) pairs, this function finds the key
+    with the lowest cost in order to identify specific edges for a given route.
+
+    route: list of node ids
+    g: MultiGraph or MultiDiGraph
+    cost: edge attribute storing cost (str)
+    """
+    edges = smake_node_pairs_along_route(route)
+    edges_with_keys = []
+    for edge in edges:
+        u, v = edge
+        key_lengths = [(g[u][v][key][cost], key) for key in g[u][v]]
+        lowest_cost_key = sorted(key_lengths)[0][1]
+        edges_with_keys.append((u, v, lowest_cost_key))
+    return edges_with_keys
+
+
 def collect_route_attributes(route, G, summaries=None):
     """Collect attributes of edges along a route defined by nodes.
 
