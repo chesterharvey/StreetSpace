@@ -1199,7 +1199,9 @@ def explode_node(G, node):
     orig_out_edges = list(G.out_edges(node, keys=True))
 
     # Get attributes from existing node
-    node_attributes = G.node[node]
+    # node_attributes = G.node[node]
+
+    node_attributes = G.nodes[node]
 
     def add_node(G, edge, counter, direction):
         # Add a new node
