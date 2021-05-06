@@ -1210,7 +1210,13 @@ def explode_node(G, node):
         # Add a new edge
         u, v, key = edge
         # edge_attributes = G.get_edge_data(*edge)
-        edge_attributes = G[u][v][key]
+        
+        try:
+            edge_attributes = G[u][v][key]
+        except:
+            print(G.has_edge(u, v, key))
+            print(edge)
+        
         if direction == 'in': 
             new_edge = (u, new_node, key)
         elif direction == 'out':
@@ -1227,21 +1233,23 @@ def explode_node(G, node):
     in_edges = []
     in_i = 0 # start counter 
     for orig_in_edge in orig_in_edges:
-        # Add a new node
-        in_edge, in_node, in_i = add_node(G, orig_in_edge, in_i, 'in')
-        in_nodes.append(in_node)
-        in_edges.append(in_edge)
+        # Add a new node if the edge still exists
+        ### Sometimes edges no longer exist--seems to be an issue with self-loops
+        if G.has_edge(*orig_in_edge):
+            in_edge, in_node, in_i = add_node(G, orig_in_edge, in_i, 'in')
+            in_nodes.append(in_node)
+            in_edges.append(in_edge)
 
     out_nodes = []
     out_edges = []
     out_i = 0 # start counter 
     for orig_out_edge in orig_out_edges:
         # # If edge is self-loop, may have already been deleted
-        # if G.has_edge(*orig_out_edge):
+        if G.has_edge(*orig_out_edge):
         # Add a new node
-        out_edge, out_node, out_i = add_node(G, orig_out_edge, out_i, 'out')
-        out_nodes.append(out_node)
-        out_edges.append(out_edge)
+            out_edge, out_node, out_i = add_node(G, orig_out_edge, out_i, 'out')
+            out_nodes.append(out_node)
+            out_edges.append(out_edge)
     
     # The thing to do here is either:
     # (1) see whether there are any other edges that require this node; if not, delete it
@@ -1411,28 +1419,86 @@ def classify_turn_acrosses(turn_directions, turn_proximities):
     return turn_acrosses
 
 
-def create_intersection_edges(G, straight_angle=20, level_field=None):
+def create_intersection_edges(G, straight_angle=20, level_field=None, default_length=0):
     """Add non-geometric edges to represent turns at intersections
     """
     G = G.copy()
     # Split self-looping edges so that their ends are distinguishable
-    # G = split_self_loops(G)
-    nodes_to_delete = []
+    G = split_self_loops(G)
     # Explode each node into sub-edges
     for node in list(G.nodes()):
         # Explode the node into edges
         in_edges, out_edges = explode_node(G, node)
-        # Mark old node for deletion
-        nodes_to_delete.append(node)
-        # # Remove old node
-        # G.remove_node(node)
         # Classify turns on edges
         classify_turns(G, in_edges, out_edges, straight_angle=straight_angle, edge_level=level_field)
+    # Remove old nodes, which are now isolated
+    G.remove_nodes_from(list(nx.isolates(G)))
+    # Add length attribute to new intersection edges
+    ensure_length_attribute(G)
     return G
 
 
+def ensure_length_attribute(g, default_length=0):
+    """Ensures that all edges have a length attribute.
+
+    Assigns default length to edges without an existing length attribute.
+
+    Useful for assigning default length to newly-created intersection edges.
+    """
+    for u, v, key in g.edges:
+        if 'length' not in g[u][v][key]:
+            g[u][v][key]['length'] = default_length
+
+
+def set_turn_lengths(g, right=0, left=0, straight=0, u_turn=0):
+    """Set length attributes based on turn attributes in graph with intersection edges.
+    """
+    for u, v, key in g.edges:
+        if 'turn_direction' in g[u][v][key]:
+            if g[u][v][key]['turn_direction'] == 'right':
+                g[u][v][key]['length'] = right
+            elif g[u][v][key]['turn_direction'] == 'left':
+                g[u][v][key]['length'] = left
+            elif g[u][v][key]['turn_direction'] == 'straight':
+                g[u][v][key]['length'] = straight
+            elif g[u][v][key]['turn_direction'] == 'U':
+                g[u][v][key]['length'] = u_turn
+
+
+def shortest_path_with_intersection_edges(g, o, d, cost, return_shortest_path_cost=False):
+    """Finds shortest path between old node IDs after intersection edges have been created.
+    
+    Finds lowest cost pair of 'out' and 'in' nodes from the 'o' and 'd' intersections
+    to incur zero costs at these intersections (i.e., no starting or ending turns)
+
+    g: networkx MultiDiGraph with intersection edges (see `create_intersection_edges`)
+
+    o and d: node IDs from the original graph (i.e., no '_out' or '_in' tags) 
+    
+    If return_shortest_path_cost = True, returns tuple with shortest path cost as the second element.
+    """
+    if all(['in' not in str(o), 'out' not in str(o)]):
+        o_candidates = [node for node in g.nodes() if f'{o}_out' in str(node)]
+    else:
+        o_candidates = [o]
+    if all(['in' not in str(d), 'out' not in str(d)]):
+        d_candidates = [node for node in g.nodes() if f'{d}_in' in str(node)]
+    else:
+        d_candidates = [d]
+
+    candidate_pairs = [(o,d) for o in o_candidates for d in d_candidates]
+    shortest_paths = [nx.shortest_path(g, o, d, cost) for o, d in candidate_pairs]
+    costs = [nx.path_weight(g, path, cost) for path in shortest_paths]
+    
+    if not return_shortest_path_cost:
+        return [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0]
+    
+    else:
+        return [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0], min(costs)
+
+
 # Convert segments to a graph
-def gdf_edges_to_graph(gdf, u=None, v=None, key=None, twoway_column=None, twoway_id='False', search_distance=1):
+def gdf_edges_to_graph(gdf, u=None, v=None, key=None, twoway_column=None, twoway_id=False, search_distance=1):
     """Identify nodes and construct a NetworkX graph based on edge segments in a gdf
 
     Use `u`, `v`, and `key` parameters to provide column names that contain known graph nodes and keys.
@@ -1530,56 +1596,51 @@ def split_self_loops(G, make_two_way=True):
     G = G.copy()
     
     # Identify self-loop edges
-    self_loop_edges = G.selfloop_edges(data=True)
-    # Make sure they're unique
-    self_loop_edges = list(set(self_loop_edges))
+    self_loop_edges = list(nx.selfloop_edges(G, keys=True, data=True))
 
     # Initiate list to store edges to remove
     edges_to_remove = []
 
     # Iterate through each self-loop
-    for u, v in self_loop_edges:
-        for key in list(G[u][v].keys()):
-            # Collect attributes
-            edge_attributes = G[u][v][key]
+    for u, v, key, edge_attributes in self_loop_edges:
             
-            # Get edge geometry
-            edge_geometry = edge_attributes['geometry']
-            
-            # Split line into thirds
-            third_length = edge_geometry.length / 3
-            edge_geometry_i, edge_geometry_j, edge_geometry_k = split_line_at_dists(
-                edge_geometry, [third_length, third_length * 2])
-            
-            # Get points for new nodes at ends of first and second sections
-            _, i_point = endpoints(edge_geometry_i)
-            _, j_point = endpoints(edge_geometry_j)
-            
-            # Insert two new nodes into the graph
-            a_node_name = f'{u}a'
-            G.add_node(a_node_name, geometry=i_point, x=i_point.x, y=i_point.y)
-            b_node_name = f'{u}b'
-            G.add_node(b_node_name, geometry=j_point, x=j_point.x, y=j_point.y)
-            
-            def insert_edge_section(start, end, geom):
-                G.add_edge(start, end, 0, **edge_attributes)
-                G[start][end][0]['geometry'] = geom
-                G[start][end][0]['length'] = G[start][end][0]['geometry'].length
-            
-            # Insert edge sections into the graph           
-            insert_edge_section(u, a_node_name, edge_geometry_i)
-            insert_edge_section(a_node_name, b_node_name, edge_geometry_j)
-            insert_edge_section(b_node_name, v, edge_geometry_k)
-                       
-            # If make two way, insert additional edge sections in the other direction
-            if make_two_way:
-                if not edge_attributes['oneway']:
-                    insert_edge_section(v, b_node_name, reverse_linestring(edge_geometry_k))
-                    insert_edge_section(b_node_name, a_node_name, reverse_linestring(edge_geometry_j))
-                    insert_edge_section(a_node_name, u, reverse_linestring(edge_geometry_i))
-                    
-            # Mark the original edge for removal
-            edges_to_remove.append((u, v, key))
+        # Get edge geometry
+        edge_geometry = edge_attributes['geometry']
+        
+        # Split line into thirds
+        third_length = edge_geometry.length / 3
+        edge_geometry_i, edge_geometry_j, edge_geometry_k = split_line_at_dists(
+            edge_geometry, [third_length, third_length * 2])
+        
+        # Get points for new nodes at ends of first and second sections
+        _, i_point = endpoints(edge_geometry_i)
+        _, j_point = endpoints(edge_geometry_j)
+        
+        # Insert two new nodes into the graph
+        a_node_name = f'{u}a'
+        G.add_node(a_node_name, geometry=i_point, x=i_point.x, y=i_point.y)
+        b_node_name = f'{u}b'
+        G.add_node(b_node_name, geometry=j_point, x=j_point.x, y=j_point.y)
+        
+        def insert_edge_section(start, end, geom):
+            G.add_edge(start, end, 0, **edge_attributes)
+            G[start][end][0]['geometry'] = geom
+            G[start][end][0]['length'] = G[start][end][0]['geometry'].length
+        
+        # Insert edge sections into the graph           
+        insert_edge_section(u, a_node_name, edge_geometry_i)
+        insert_edge_section(a_node_name, b_node_name, edge_geometry_j)
+        insert_edge_section(b_node_name, v, edge_geometry_k)
+                   
+        # If make two way, insert additional edge sections in the other direction
+        if make_two_way:
+            if not edge_attributes['oneway']:
+                insert_edge_section(v, b_node_name, reverse_linestring(edge_geometry_k))
+                insert_edge_section(b_node_name, a_node_name, reverse_linestring(edge_geometry_j))
+                insert_edge_section(a_node_name, u, reverse_linestring(edge_geometry_i))
+                
+        # Mark the original edge for removal
+        edges_to_remove.append((u, v, key))
 
     # Delete original edges
     for u, v, key in edges_to_remove:

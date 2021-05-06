@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import subprocess
 import collections
+import sys
 
 def listify(x):
     """Puts non-list objects into a list. 
@@ -581,3 +582,13 @@ def collapse_hierarchical_column_names(df, delimiter='_'):
     df = df.copy()
     df.columns = [delimiter.join((lambda x: (str(y) for y in x))(col)).rstrip(delimiter).strip() for col in df.columns.values]
     return df
+
+def tiny():
+    """Returns a really tiny positive float
+    """
+    return np.finfo(float).tiny
+
+def giant():
+    """returns a really giant positive float
+    """
+    return sys.float_info.max

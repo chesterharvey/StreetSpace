@@ -24,6 +24,7 @@ from itertools import cycle, groupby
 from pprint import pprint
 from time import time
 from scipy.spatial import cKDTree  
+from warnings import warn
 
 from .utils import *
 
@@ -456,8 +457,13 @@ def spaced_points_along_line(linestring, spacing, centered=False, return_lin_ref
         return all_points, all_lin_refs
 
 
-def azimuth(linestring, degrees=True):
+def azimuth(linestring, degrees=True, warning=True):
     """Calculate azimuth between endpoints of a LineString.
+
+    
+    ###### WARNING: This function was returning reversed azimuths in an earlier version.
+    ###### Code depending on it should be reviewed for logic errors. 
+
 
     Parameters
     ----------
@@ -473,9 +479,10 @@ def azimuth(linestring, degrees=True):
     :obj:`float`
         Azimuth between the endpoints of the ``linestring``.
     """ 
-    u = endpoints(linestring)[0]
-    v = endpoints(linestring)[1]
-    azimuth = np.arctan2(u.y - v.y, u.x - v.x)
+    if warning:
+        warn('A previous version of streetspace.geometry.azimuth returned reverse azimuths (180 degree off')
+    u, v = endpoints(linestring)
+    azimuth = np.arctan2(v.y - u.y, v.x - u.x)
     if degrees:
         return np.degrees(azimuth)
     else:
@@ -1112,14 +1119,15 @@ def label_features(axis, gdf, label_column, offset, **kwargs):
         **kwargs), axis=1)
 
 def plot_shapes(shapes, ax=None, axis_off=True, size=8, extent=None, 
-    legend=None, leaflet=False):
+    legend=None, base_shapes=None, leaflet=False):
     """Plot multiple shapes.
 
     Parameters
     ----------
-    shapes : list or Shapely geometry
+    shapes : single Shapely geometry, list of geometries, list of lists of geometries, GeoDataFrame, or list of GeoDataFrames
         * a single geometry will be plotted by itself
-        * each geometry in a list will be plotted in a seperate color
+        * each geometry or list of geometries within a list will be plotted in a seperate color
+        * all records in a GeoDataFrame will be plotted in the same color
         * tuples like (geom, {'color':'color'}) may be passed to specify colors\
         and other attributes
         * default color order is: brgcmyk
@@ -1141,6 +1149,10 @@ def plot_shapes(shapes, ax=None, axis_off=True, size=8, extent=None,
 
     legend : :obj:`list`, optional, default = ``None``
         List with the same length and order as ``shapes``
+
+    base_shapes : GeoDataFrame
+        If specified, extents of `base_shapes` will be clipped to the maximum extent of `shapes` 
+        and plotted as the bottom layer in grey 
 
     leaflet : :obj:`bool`, optional, default = ``False`` (deprecated)
         * ``True`` : will plot in leaflet in a new browser window
@@ -1204,34 +1216,55 @@ def plot_shapes(shapes, ax=None, axis_off=True, size=8, extent=None,
         max_extent = max([(maxx-minx),(maxy-miny)])
         offset = max_extent / 120
 
-    # Plot the first shape
+    # Set up axis
     if not ax:
         if not isinstance(size, tuple):
             size = (size, size)
         fig, ax = plt.subplots(1, figsize=size)
-    first_shape = shapes[0]
-    first_shape.plot(ax=ax, color=colors[0], alpha=alphas[0])
-    if labels[0]:
-        if not labels[0] in first_shape.columns:
-            first_shape[labels[0]] = labels[0]
-        label_features(
-            ax, first_shape, labels[0], (offset,offset), color=colors[0], ha='left')
 
-    # plot remaining shapes
-    if len(shapes) > 0:
-        remaining_shapes = shapes[1:]
-        for i, shape in enumerate(remaining_shapes):
-            shape.plot(ax=ax, color=colors[i+1], alpha=alphas[i+1])
-            if labels[i+1]:
-                if not labels[i+1] in shape.columns:
-                    shape[labels[i+1]] = labels[i+1]
-                label_features(
-                    ax, shape, labels[i+1], (offset,offset), color=colors[i+1], ha='left')
+    # Plot base shapes if specified
+    if base_shapes is not None:
+        if isinstance(base_shapes, list):
+            base_shapes = gpd.GeoDataFrame(geometry=base_shapes)
+        # Calculate bounding box of primary shapes
+        bbox = gdf_bbox(gpd.GeoDataFrame(geometry=[geom for shape in shapes for geom in shape.geometry]))
+        # Get intersection of bbox with base shapes
+        base_shapes = gpd.overlay(base_shapes, gpd.GeoDataFrame(geometry=[bbox], crs=base_shapes.crs))
+        # Plot the base shapes
+        base_shapes.plot(ax=ax, color='#ECECEC')
+
+    # Plot shapes
+    for i, shape in enumerate(shapes):
+        shape.plot(ax=ax, color=colors[i], alpha=alphas[i])
+        if labels[i]:
+            if not labels[i] in shape.columns:
+                shape[labels[i]] = labels[i]
+            label_features(
+                ax, shape, labels[i], (offset,offset), color=colors[i], ha='left')
+
+    # 
+    # first_shape = shapes[0]
+    # first_shape.plot(ax=ax, color=colors[0], alpha=alphas[0])
+    # if labels[0]:
+    #     if not labels[0] in first_shape.columns:
+    #         first_shape[labels[0]] = labels[0]
+    #     label_features(
+    #         ax, first_shape, labels[0], (offset,offset), color=colors[0], ha='left')
+
+    # # plot remaining shapes
+    # if len(shapes) > 0:
+    #     remaining_shapes = shapes[1:]
+    #     for i, shape in enumerate(remaining_shapes):
+    #         shape.plot(ax=ax, color=colors[i+1], alpha=alphas[i+1])
+    #         if labels[i+1]:
+    #             if not labels[i+1] in shape.columns:
+    #                 shape[labels[i+1]] = labels[i+1]
+    #             label_features(
+    #                 ax, shape, labels[i+1], (offset,offset), color=colors[i+1], ha='left')
     
     if leaflet:
-        mplleaflet.show(fig=fig, crs=shapes[0].crs, tiles='cartodb_positron')
-    
-    else:
+        mplleaflet.show(fig=fig, crs=shapes[0].crs, tiles='cartodb_positron')       
+
         if extent:
             ax.axis('equal')
             minx, miny, maxx, maxy = extent
@@ -1705,22 +1738,22 @@ def construct_hexagons(startx, starty, endx, endy, radius):
 
 
 def hexagon_grid(gdf, radius):
-	"""Create mesh of hexagons with a specific radius across the same extent as a gdf
+    """Create mesh of hexagons with a specific radius across the same extent as a gdf
 
-	"""
-	# get bounds of supplied geodataframe
-	minx, miny, maxx, maxy = gdf.total_bounds
+    """
+    # get bounds of supplied geodataframe
+    minx, miny, maxx, maxy = gdf.total_bounds
 
-	# calculate coordinates for hexagons
-	hex_coords = construct_hexagons(minx, miny, maxx, maxy, radius)
+    # calculate coordinates for hexagons
+    hex_coords = construct_hexagons(minx, miny, maxx, maxy, radius)
 
-	# construct hexagon polygons
-	hexagons = [sh.geometry.Polygon(coords) for coords in hex_coords]
+    # construct hexagon polygons
+    hexagons = [sh.geometry.Polygon(coords) for coords in hex_coords]
 
-	# convert to geodataframe
-	hexagons = gpd.GeoDataFrame(geometry=hexagons, crs=gdf.crs) 
+    # convert to geodataframe
+    hexagons = gpd.GeoDataFrame(geometry=hexagons, crs=gdf.crs) 
 
-	return hexagons
+    return hexagons
 
 
 def merge_multilinestring(multilinestring, tolerance):
