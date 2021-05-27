@@ -649,3 +649,4 @@ def get_continuous_cmap(hex_list, float_list=None):
         col_list = [[float_list[i], rgb_list[i][num], rgb_list[i][num]] for i in range(len(float_list))]
         cdict[col] = col_list
     cmp = LinearSegmentedColormap('my_cmp', segmentdata=cdict, N=256)
+    return cmp
