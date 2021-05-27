@@ -9,6 +9,7 @@ import pandas as pd
 import subprocess
 import collections
 import sys
+from matplotlib.colors import LinearSegmentedColormap
 
 def listify(x):
     """Puts non-list objects into a list. 
@@ -563,6 +564,7 @@ def df_split_lists_into_rows(df, list_column, keep_columns=False, keep_indices=F
     
     return new_df
 
+
 def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_column=True):
     """Splits same-length lists within a column into seperate columns
     """
@@ -571,6 +573,7 @@ def df_split_lists_into_columns(df, list_column, new_column_names, delete_list_c
     if delete_list_column:
         df = df.drop(columns=[list_column])
     return df
+
 
 def collapse_hierarchical_column_names(df, delimiter='_'):
     '''Collapse multi-level column names in Pandas DataFrame into single-level column names
@@ -583,12 +586,66 @@ def collapse_hierarchical_column_names(df, delimiter='_'):
     df.columns = [delimiter.join((lambda x: (str(y) for y in x))(col)).rstrip(delimiter).strip() for col in df.columns.values]
     return df
 
+
 def tiny():
     """Returns a really tiny positive float
     """
     return np.finfo(float).tiny
 
+
 def giant():
     """returns a really giant positive float
     """
     return sys.float_info.max
+
+
+def hex_to_rgb(value):
+    '''
+    Converts hex to rgb colours
+    value: string of 6 characters representing a hex colour.
+    Returns: list length 3 of RGB values
+    
+    From https://towardsdatascience.com/beautiful-custom-colormaps-with-matplotlib-5bab3d1f0e72
+    '''
+    value = value.strip("#") # removes hash symbol if present
+    lv = len(value)
+    return tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
+
+
+def rgb_to_dec(value):
+    '''
+    Converts rgb to decimal colours (i.e. divides each value by 256)
+    value: list (length 3) of RGB values
+    Returns: list (length 3) of decimal values
+    
+    From https://towardsdatascience.com/beautiful-custom-colormaps-with-matplotlib-5bab3d1f0e72
+    '''
+    return [v/256 for v in value]
+
+
+def get_continuous_cmap(hex_list, float_list=None):
+    ''' creates and returns a color map that can be used in heat map figures.
+        If float_list is not provided, colour map graduates linearly between each color in hex_list.
+        If float_list is provided, each color in hex_list is mapped to the respective location in float_list.
+        
+        From https://towardsdatascience.com/beautiful-custom-colormaps-with-matplotlib-5bab3d1f0e72
+        
+        Parameters
+        ----------
+        hex_list: list of hex code strings
+        float_list: list of floats between 0 and 1, same length as hex_list. Must start with 0 and end with 1.
+        
+        Returns
+        ----------
+        colour map'''
+    rgb_list = [rgb_to_dec(hex_to_rgb(i)) for i in hex_list]
+    if float_list:
+        pass
+    else:
+        float_list = list(np.linspace(0,1,len(rgb_list)))
+        
+    cdict = dict()
+    for num, col in enumerate(['red', 'green', 'blue']):
+        col_list = [[float_list[i], rgb_list[i][num], rgb_list[i][num]] for i in range(len(float_list))]
+        cdict[col] = col_list
+    cmp = LinearSegmentedColormap('my_cmp', segmentdata=cdict, N=256)
