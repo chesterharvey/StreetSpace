@@ -162,7 +162,7 @@ def lookup_sindex_id(object, items=None, sindex=None, search_bounds=None):
 
 
 def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
-    both_ways=False, sindex=None, verbose=False):
+    both_ways=False, delete_edge=True, sindex=None, verbose=False):
     """Insert a node along an edge with a geometry attribute.
 
     ``edge`` must have a LineString geometry attribute
@@ -187,6 +187,9 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
     both_ways : :obj:`bool`, optional, default = ``False``
         Specifies whether a node will also be inserted into an edge in the\
         opposite direction 
+    delete_edge : :obj:`bool`, optional, default = ``True``
+        Specifies whether the existing edge is deleted. If ``False``, the
+        original edge will continue to be a routable part of the graph.
     sindex : rtree index
         Spatial index for G (best created with graph_sindex). If specified,\
         this index will be updated appropriatly when edges are added or\
@@ -201,10 +204,11 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
     # Get attributes from existing edge
     attrs = G.get_edge_data(*edge)
     original_geom = attrs['geometry']
-    # Delete existing edge
-    if verbose:
-        print('removing edge {} from graph'.format(edge))
-    remove_edge(G, edge, node_point)       
+    if delete_edge:
+        # Delete existing edge
+        if verbose:
+            print('removing edge {} from graph'.format(edge))
+        remove_edge(G, edge, node_point)       
     # Add new edges
     if G.is_multigraph():
         if verbose:
@@ -254,9 +258,10 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
                     print('forward edge and reverse edge passed similarity test')
                 # Get attributes for the reverse edge
                 attrs = G.get_edge_data(*reverse)
-                if verbose:    
-                    print('removing reverse edge {} from graph'.format(reverse))   
-                remove_edge(G, reverse, node_point)
+                if delete_edge:
+                    if verbose:    
+                        print('removing reverse edge {} from graph'.format(reverse))   
+                    remove_edge(G, reverse, node_point)
                 # Add new edges
                 if verbose:
                     print('adding first reverse edge {} to graph and index'.format((reverse[0], node_name, 0)))
@@ -783,14 +788,16 @@ def make_node_pairs_with_lowest_cost_keys_along_route(route, g, cost='length'):
     cost: edge attribute storing cost (str)
     """
     edges = make_node_pairs_along_route(route)
-    edges_with_keys = []
-    for edge in edges:
-        u, v = edge
-        edges_with_keys.append((u, v, get_lowest_cost_key(u, v, g, cost)))
-    return edges_with_keys
+    if cost:
+        edges_with_keys = []
+        for edge in edges:
+            u, v = edge
+            edges_with_keys.append((u, v, get_lowest_cost_key(u, v, g, cost)))
+        return edges_with_keys
+    return edges
 
 
-def collect_route_attributes(route, G, summaries=None):
+def collect_route_attributes(route, G, cost='length', summaries=None):
     """Collect attributes of edges along a route defined by nodes.
 
     Parameters
@@ -799,6 +806,10 @@ def collect_route_attributes(route, G, summaries=None):
         List nodes forming route
     G : :class:`networkx.Graph`
         Graph containing route
+    cost : :obj:`str`
+        Edge attribute with cost that should be minimized along the route.
+        Used for choosing minumum-cost alterantive where there are multiple edges
+        between the same pair of nodes.
     summaries : :class:`OrderedDict`, optional, default = None
         Keys are names for summaries, uses as keys in ``collected_summaries``.\
         Values are tuples with the first value being function for calculating\
@@ -829,11 +840,11 @@ def collect_route_attributes(route, G, summaries=None):
         default_summaries.update(summaries)
 
     # Get data from edges along route
-    node_pairs = make_node_pairs_along_route(route)
+    edges = make_node_pairs_with_lowest_cost_keys_along_route(route, G, cost=cost)
     
     # Get edge data either from a graph or a dataframe
     if isinstance(G, MultiDiGraph) or isinstance(G, DiGraph):
-        route_data = [G.get_edge_data(u, v) for u,v, in node_pairs]
+        route_data = [G.get_edge_data(*edge) for edge in edges]
     elif isinstance(G, GeoDataFrame):
         edges = G
         def edge_data(edges, u, v):
@@ -848,35 +859,22 @@ def collect_route_attributes(route, G, summaries=None):
     collected_attributes = empty_array(len(route_data), attribute_fields)
     # Iterate through edges along route
     for i, edge in enumerate(route_data):
-        if edge is not None:
-            # If there are parallel edges, select shortest one
-            if len(edge) > 1 and isinstance(G, MultiDiGraph):
-                keys = []
-                lengths = []
-                for key, data in edge.items():
-                    keys.append(key)
-                    lengths.append(data['length'])
-                # Identify the shorest option
-                _, j = min((length, j) for (j, length) in enumerate(lengths))
-                # Remove all dictionary elements except that one
-                [route_data[i].pop(x) for x in list(route_data[i]) if x != keys[j]]
-            
+
+        if edge is not None:            
             # Collect each attribute
             for name, (_, attribute) in summaries.items():
                 if isinstance(G, MultiDiGraph):
-                    # Access whatever key remains in the edge dictionary
-                    for key in edge.keys():
-                        if isinstance(attribute, tuple):
-                            attributes = []
-                            for a in attribute:
-                                if a in edge[key]:
-                                    attributes.append(edge[key][a])
-                                else:
-                                    attributes.append(edge[key][None])
-                            collected_attributes[name][i] = tuple(attributes)
-                        else:
-                            if attribute in edge[key]:
-                                collected_attributes[name][i] = edge[key][attribute]
+                    if isinstance(attribute, tuple):
+                        attributes = []
+                        for a in attribute:
+                            if a in edge:
+                                attributes.append(edge[a])
+                            else:
+                                attributes.append(edge[None])
+                        collected_attributes[name][i] = tuple(attributes)
+                    else:
+                        if attribute in edge:
+                            collected_attributes[name][i] = edge[attribute]
                 elif isinstance(G, DiGraph):
                     if isinstance(attribute, tuple):
                         attributes = []
@@ -1188,8 +1186,11 @@ def subgraph_by_edge_attribute(G, attribute, values, simplify=True):
 ##### The following functions are for modeling turns within intersections #####
 ##### Docstrings needs to be fleshed out #####
 
-def explode_node(G, node):
+def explode_node(G, node, out_to_out_edges=False):
     """Create non-geometric edges between all 'in' and 'out' edges at each node
+
+    If out_to_out_edges is True, additional edges are built between all 'out' nodes to ensure
+    that no 'out' is a dead end.
     """
     
     # Find all entering edges
@@ -1208,15 +1209,8 @@ def explode_node(G, node):
         new_node = '{}_{}{}'.format(node, direction, counter)
         G.add_node(new_node, **node_attributes)
         # Add a new edge
-        u, v, key = edge
-        # edge_attributes = G.get_edge_data(*edge)
-        
-        try:
-            edge_attributes = G[u][v][key]
-        except:
-            print(G.has_edge(u, v, key))
-            print(edge)
-        
+        u, v, key = edge        
+        edge_attributes = G[u][v][key]        
         if direction == 'in': 
             new_edge = (u, new_node, key)
         elif direction == 'out':
@@ -1423,6 +1417,10 @@ def create_intersection_edges(G, straight_angle=20, level_field=None, default_le
     """Add non-geometric edges to represent turns at intersections
     """
     G = G.copy()
+    # Store parent edge IDs as attributes for later recall
+    for edge in G.edges(keys=True):
+        u, v, key = edge
+        G[u][v][key]['parent'] = edge
     # Split self-looping edges so that their ends are distinguishable
     G = split_self_loops(G)
     # Explode each node into sub-edges
@@ -1487,14 +1485,29 @@ def shortest_path_with_intersection_edges(g, o, d, cost, return_shortest_path_co
         d_candidates = [d]
 
     candidate_pairs = [(o,d) for o in o_candidates for d in d_candidates]
-    shortest_paths = [nx.shortest_path(g, o, d, cost) for o, d in candidate_pairs]
-    costs = [nx.path_weight(g, path, cost) for path in shortest_paths]
+
+    # path_availability = [nx.has_path(g, o, d) for o, d in candidate_pairs]
+    # candidate_pairs = [pair for (pair, path_available) in zip(candidate_pairs, path_availability) if path_available]
+
+    shortest_paths = []
+    costs = []
+    for sub_o, sub_d in candidate_pairs:
+        try:
+            shortest_path = nx.shortest_path(g, sub_o, sub_d, weight=cost)
+            shortest_paths.append(shortest_path)
+            path_cost = nx.path_weight(g, shortest_path, cost)
+            costs.append(path_cost)
+        except:
+            shortest_paths.append([])
+            costs.append(np.nan)
     
-    if not return_shortest_path_cost:
-        return [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0]
-    
+    shortest_path = [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0]
+
+    if return_shortest_path_cost:
+        return shortest_path, min(costs)
+
     else:
-        return [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0], min(costs)
+        return shortest_path
 
 
 # Convert segments to a graph

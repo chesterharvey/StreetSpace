@@ -480,7 +480,7 @@ def azimuth(linestring, degrees=True, warning=True):
         Azimuth between the endpoints of the ``linestring``.
     """ 
     if warning:
-        warn('A previous version of streetspace.geometry.azimuth returned reverse azimuths (180 degree off')
+        warn('A previous version of streetspace.geometry.azimuth returned reverse azimuths 180 degree off')
     u, v = endpoints(linestring)
     azimuth = np.arctan2(v.y - u.y, v.x - u.x)
     if degrees:
@@ -1111,6 +1111,9 @@ def label_features(axis, gdf, label_column, offset, **kwargs):
                 jitter_range = max([(maxx-minx),(maxy-miny)]) * jitter
                 x = label_point.x + random.uniform(-jitter_range, jitter_range)
                 y = label_point.y + random.uniform(-jitter_range, jitter_range)
+            else:
+                x = label_point.x
+                y = label_point.y
             return Point(x,y)
 
     gdf.apply(lambda edge: axis.annotate(s=edge[label_column], 
