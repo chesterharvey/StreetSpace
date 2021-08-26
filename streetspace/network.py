@@ -161,7 +161,7 @@ def lookup_sindex_id(object, items=None, sindex=None, search_bounds=None):
             items if edge_id == object][0]
 
 
-def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
+def insert_node_along_edge(G, edge, node_point, node_name,
     both_ways=False, delete_edge=True, sindex=None, verbose=False):
     """Insert a node along an edge with a geometry attribute.
 
@@ -202,38 +202,56 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
                       'osmid': 000000000}
     G.add_node(node_name, **new_node_attrs)
     # Get attributes from existing edge
-    attrs = G.get_edge_data(*edge)
+    attrs = G.get_edge_data(*edge).copy()
     original_geom = attrs['geometry']
+    
+    # Why does the old edge need to be deleted before new ones are added?
     if delete_edge:
         # Delete existing edge
         if verbose:
             print('removing edge {} from graph'.format(edge))
-        remove_edge(G, edge, node_point)       
+        remove_edge(G, edge, node_point)
+
     # Add new edges
     if G.is_multigraph():
         if verbose:
             print('adding first forward edge {} to graph and index'.format((edge[0], node_name, 0)))
     
-        add_new_edge(G, (edge[0], node_name, 0), 
-                    segment(original_geom, endpoints(original_geom)[0], node_point),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(edge[0], node_name, 0), 
+            geometry=segment(original_geom, endpoints(original_geom)[0], node_point),
+            attrs=attrs, 
+            sindex=sindex)
+        
         if verbose:
             print('adding second forward edge {} to graph and index'.format((node_name, edge[1], 0)))
-        add_new_edge(G, (node_name, edge[1], 0), 
-                    segment(original_geom, node_point, endpoints(original_geom)[1]),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(node_name, edge[1], 0), 
+            geometry=segment(original_geom, node_point, endpoints(original_geom)[1]),
+            attrs=attrs, 
+            sindex=sindex)
+
     else:
         if verbose:
             print('adding first forward edge {} to graph and index'.format((edge[0], node_name)))
     
-        add_new_edge(G, (edge[0], node_name), 
-                    segment(original_geom, endpoints(original_geom)[0], node_point),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(edge[0], node_name), 
+            geometry=segment(original_geom, endpoints(original_geom)[0], node_point),
+            attrs=attrs, 
+            sindex=sindex)
+
         if verbose:
             print('adding second forward edge {} to graph and index'.format((node_name, edge[1])))
-        add_new_edge(G, (node_name, edge[1]), 
-                    segment(original_geom, node_point, endpoints(original_geom)[1]),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(node_name, edge[1]), 
+            geometry=segment(original_geom, node_point, endpoints(original_geom)[1]),
+            attrs=attrs, 
+            sindex=sindex)
 
     if both_ways:
         # Flip the start and end node
@@ -249,30 +267,37 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
             if (edge_midpoint.almost_equals(edge_midpoint, 0) and 
                 (0.95 < (edge_length/reverse_length) < 1.05)):
 
-            # edge_buffer = original_geom.buffer(1)
-            # if reverse_geometry.within(edge_buffer):
-
                 # print('reverse passed equivalency test')
 
                 if verbose:
                     print('forward edge and reverse edge passed similarity test')
                 # Get attributes for the reverse edge
                 attrs = G.get_edge_data(*reverse)
+                
+                # Why does the old edge need to be deleted before new ones are added?
                 if delete_edge:
                     if verbose:    
                         print('removing reverse edge {} from graph'.format(reverse))   
                     remove_edge(G, reverse, node_point)
+                
                 # Add new edges
                 if verbose:
                     print('adding first reverse edge {} to graph and index'.format((reverse[0], node_name, 0)))
-                add_new_edge(G, (reverse[0], node_name, 0), 
-                    segment(original_geom, endpoints(reverse_geometry)[0], node_point),
-                    attrs, sindex=sindex)
+                add_new_edge(
+                    G=G, 
+                    edge=(reverse[0], node_name, 0), 
+                    geometry=segment(reverse_geometry, endpoints(reverse_geometry)[0], node_point),
+                    attrs=attrs, 
+                    sindex=sindex)
+                
                 if verbose:
                     print('adding second reverse edge {} to graph and index'.format((node_name, reverse[1], 0)))
-                add_new_edge(G, (node_name, reverse[1], 0), 
-                    segment(original_geom, node_point, endpoints(reverse_geometry)[1]),
-                    attrs, sindex=sindex)
+                add_new_edge(
+                    G=G, 
+                    edge=(node_name, reverse[1], 0), 
+                    geometry=segment(reverse_geometry, node_point, endpoints(reverse_geometry)[1]),
+                    attrs=attrs, 
+                    sindex=sindex)
             else:
                 if verbose:
                     print('Edge {} and its reverse ({}) are not alinged.'.format(edge, reverse))
