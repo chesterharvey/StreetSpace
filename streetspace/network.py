@@ -205,7 +205,7 @@ def insert_node_along_edge(G, edge, node_point, node_name,
     attrs = G.get_edge_data(*edge).copy()
     original_geom = attrs['geometry']
     
-    # Why does the old edge need to be deleted before new ones are added?
+    # Delete edge if requested
     if delete_edge:
         # Delete existing edge
         if verbose:
@@ -272,9 +272,9 @@ def insert_node_along_edge(G, edge, node_point, node_name,
                 if verbose:
                     print('forward edge and reverse edge passed similarity test')
                 # Get attributes for the reverse edge
-                attrs = G.get_edge_data(*reverse)
+                attrs = G.get_edge_data(*reverse).copy()
                 
-                # Why does the old edge need to be deleted before new ones are added?
+                # Delete edge if requested
                 if delete_edge:
                     if verbose:    
                         print('removing reverse edge {} from graph'.format(reverse))   
@@ -301,6 +301,18 @@ def insert_node_along_edge(G, edge, node_point, node_name,
             else:
                 if verbose:
                     print('Edge {} and its reverse ({}) are not alinged.'.format(edge, reverse))
+
+
+def insert_node_at_edge_midpoint(g, edge, node_name, both_ways=True, delete_edge=True, verbose=False):
+    u, v, key = edge 
+    insert_node_along_edge(
+        G=g, 
+        edge=edge, 
+        node_point=midpoint(g[u][v][key]['geometry']), 
+        node_name=node_name,  
+        both_ways=both_ways,
+        delete_edge=delete_edge,
+        verbose=verbose)
 
 
 def search_sindex_items(sindex, search_bounds=None, bbox=False):
