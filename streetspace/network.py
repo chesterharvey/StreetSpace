@@ -2209,23 +2209,41 @@ def _attach_turn_ids_to_edges(edges, turns):
     edges['turn_v'] = edges['turn_v'].fillna(edges['v'])
     return edges
 
-def correct_edge_direction(edges, nodes, precision=6):
-    # Operate on a copy
-    edges = edges.copy()
-    # Attach u points
-    edges = edges.merge(nodes['geometry'].rename('u_point'), left_on = 'u', right_index=True)
-    # Initiate list to store corrected geometries
-    geometries = []
-    for edge in edges.itertuples():
-        u_point = edge.u_point
-        u_endpoint = endpoints(edge.geometry)[0]
-        # Check geometric equivalence
-        if u_point.almost_equals(u_endpoint, precision):
-            geometries.append(reverse_linestring(edge.geometry))
-        else:
-            geometries.append(edge.geometry)
-    # Set the edge geometry to the corrected version
-    edges['geometry'] = geometries
-    # Remove points column
-    edges = edges.drop(columns=['u_point'])
-    return edges
+def correct_edge_direction(g=None, edges=None, nodes=None, precision=6, verbose=False):
+    corrections = 0
+    
+    if g:
+        g = g.copy()
+        for u, v, key, data in g.edges(keys=True, data=True):
+            if not g.nodes[u]['geometry'].almost_equals(endpoints(data['geometry'])[0], 6):
+                if verbose:
+                    print(f'Correcting direction of ({u}, {v}, {key})')
+                g[u][v][key]['geometry'] = reverse_linestring(data['geometry'])
+                corrections += 1                
+        if verbose:
+            print(f'Corrected {corrections} edges')
+        return g
+    
+    if edges is not None and nodes is not None:
+        # Operate on a copy of edges
+        edges = edges.copy()
+        # Join nodes as 'u_points' with edges by 'u' 
+        edges = edges.merge(nodes['geometry'].rename('u_point'), left_on = 'u', right_index=True)
+        # Initiate list to store corrected geometries
+        geometries = []
+        for edge in edges.itertuples():
+            # For each edge, check whether first point in geometry is the same as the u_point
+            if not edge.u_point.almost_equals(endpoints(edge.geometry)[0], precision):
+                if verbose:
+                    print(f'Correcting direction of ({edge.u}, {edge.v}, {edge.key})')
+                geometries.append(reverse_linestring(edge.geometry))
+                corrections += 1
+            else:
+                geometries.append(edge.geometry)
+        # Set the edge geometry to the corrected version
+        edges['geometry'] = geometries
+        # Remove points column
+        edges = edges.drop(columns=['u_point'])
+        if verbose:
+            print(f'Corrected {corrections} edges')
+        return edges
