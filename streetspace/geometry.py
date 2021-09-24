@@ -23,7 +23,8 @@ from rtree import index
 from itertools import cycle, groupby
 from pprint import pprint
 from time import time
-from scipy.spatial import cKDTree  
+from scipy.spatial import cKDTree
+from sklearn.neighbors import BallTree  
 from warnings import warn
 
 from .utils import *
@@ -1995,3 +1996,48 @@ def gdf_cast_singlpart_geometry_to_multipart(gdf, geometry_column='geometry'):
     return gdf
 
 
+def get_nearest(src_points, candidates, k_neighbors):
+    """
+    Find nearest neighbors for all source points from a set of candidate points
+    Adapted from https://stackoverflow.com/questions/62198199/k-nearest-points-from-two-dataframes-with-geopandas
+    """
+
+    # Create tree from the candidate points
+    tree = BallTree(candidates, leaf_size=15)
+
+    # Find closest points and distances
+    distances, indices = tree.query(src_points, k=k_neighbors)
+   
+    return (indices, distances)
+
+
+def nearest_neighbor(left_gdf, right_gdf, k_neighbors=1, return_left_columns=True, return_right_columns=True):
+    """
+    For each point in left_gdf, find closest point in right GeoDataFrame and return them.
+    Adapted from https://stackoverflow.com/questions/62198199/k-nearest-points-from-two-dataframes-with-geopandas
+    """
+    # Ensure that index in right gdf is formed of sequential numbers
+    right = right_gdf.copy().reset_index(drop=True)
+    
+    left_coords = np.array(list(zip(left_gdf[left_gdf.geometry.name].x, left_gdf[left_gdf.geometry.name].y)))
+    right_coords = np.array(list(zip(right[right_gdf.geometry.name].x, right[right_gdf.geometry.name].y)))
+
+    # Find the nearest points
+    # -----------------------
+    # closest ==> index in right_gdf that corresponds to the closest point
+    # dist ==> distance between the nearest neighbors (in meters)
+
+    closest, dist = get_nearest(src_points=left_coords, candidates=right_coords, k_neighbors=k_neighbors)
+   
+    closest = pd.DataFrame({'right_index':[list(x) for x in closest]}).explode('right_index')
+    dist = pd.DataFrame({'right_dist':[list(x) for x in dist]}).explode('right_dist')
+    closest = pd.concat([closest, dist], axis=1).reset_index().rename(columns={'index':'left_index'})
+    
+    if return_left_columns:
+        closest = left_gdf.merge(closest, left_index=True, right_on='left_index', how='left').reset_index(drop=True)
+    if return_right_columns:
+        closest = closest.merge(right.drop(columns=[right_gdf.geometry.name]), left_on='right_index', right_index=True).reset_index(drop=True)
+        
+    closest = closest.sort_values('left_index').reset_index()
+    
+    return closest
