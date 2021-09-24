@@ -161,8 +161,8 @@ def lookup_sindex_id(object, items=None, sindex=None, search_bounds=None):
             items if edge_id == object][0]
 
 
-def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
-    both_ways=False, sindex=None, verbose=False):
+def insert_node_along_edge(G, edge, node_point, node_name,
+    both_ways=False, delete_edge=True, sindex=None, verbose=False):
     """Insert a node along an edge with a geometry attribute.
 
     ``edge`` must have a LineString geometry attribute
@@ -187,6 +187,9 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
     both_ways : :obj:`bool`, optional, default = ``False``
         Specifies whether a node will also be inserted into an edge in the\
         opposite direction 
+    delete_edge : :obj:`bool`, optional, default = ``True``
+        Specifies whether the existing edge is deleted. If ``False``, the
+        original edge will continue to be a routable part of the graph.
     sindex : rtree index
         Spatial index for G (best created with graph_sindex). If specified,\
         this index will be updated appropriatly when edges are added or\
@@ -199,37 +202,56 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
                       'osmid': 000000000}
     G.add_node(node_name, **new_node_attrs)
     # Get attributes from existing edge
-    attrs = G.get_edge_data(*edge)
+    attrs = G.get_edge_data(*edge).copy()
     original_geom = attrs['geometry']
-    # Delete existing edge
-    if verbose:
-        print('removing edge {} from graph'.format(edge))
-    remove_edge(G, edge, node_point)       
+    
+    # Delete edge if requested
+    if delete_edge:
+        # Delete existing edge
+        if verbose:
+            print('removing edge {} from graph'.format(edge))
+        remove_edge(G, edge, node_point)
+
     # Add new edges
     if G.is_multigraph():
         if verbose:
             print('adding first forward edge {} to graph and index'.format((edge[0], node_name, 0)))
     
-        add_new_edge(G, (edge[0], node_name, 0), 
-                    segment(original_geom, endpoints(original_geom)[0], node_point),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(edge[0], node_name, 0), 
+            geometry=segment(original_geom, endpoints(original_geom)[0], node_point),
+            attrs=attrs, 
+            sindex=sindex)
+        
         if verbose:
             print('adding second forward edge {} to graph and index'.format((node_name, edge[1], 0)))
-        add_new_edge(G, (node_name, edge[1], 0), 
-                    segment(original_geom, node_point, endpoints(original_geom)[1]),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(node_name, edge[1], 0), 
+            geometry=segment(original_geom, node_point, endpoints(original_geom)[1]),
+            attrs=attrs, 
+            sindex=sindex)
+
     else:
         if verbose:
             print('adding first forward edge {} to graph and index'.format((edge[0], node_name)))
     
-        add_new_edge(G, (edge[0], node_name), 
-                    segment(original_geom, endpoints(original_geom)[0], node_point),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(edge[0], node_name), 
+            geometry=segment(original_geom, endpoints(original_geom)[0], node_point),
+            attrs=attrs, 
+            sindex=sindex)
+
         if verbose:
             print('adding second forward edge {} to graph and index'.format((node_name, edge[1])))
-        add_new_edge(G, (node_name, edge[1]), 
-                    segment(original_geom, node_point, endpoints(original_geom)[1]),
-                    attrs, sindex=sindex)
+        add_new_edge(
+            G=G, 
+            edge=(node_name, edge[1]), 
+            geometry=segment(original_geom, node_point, endpoints(original_geom)[1]),
+            attrs=attrs, 
+            sindex=sindex)
 
     if both_ways:
         # Flip the start and end node
@@ -245,32 +267,52 @@ def insert_node_along_edge(G, edge, node_point, node_name, node_points=None,
             if (edge_midpoint.almost_equals(edge_midpoint, 0) and 
                 (0.95 < (edge_length/reverse_length) < 1.05)):
 
-            # edge_buffer = original_geom.buffer(1)
-            # if reverse_geometry.within(edge_buffer):
-
                 # print('reverse passed equivalency test')
 
                 if verbose:
                     print('forward edge and reverse edge passed similarity test')
                 # Get attributes for the reverse edge
-                attrs = G.get_edge_data(*reverse)
-                if verbose:    
-                    print('removing reverse edge {} from graph'.format(reverse))   
-                remove_edge(G, reverse, node_point)
+                attrs = G.get_edge_data(*reverse).copy()
+                
+                # Delete edge if requested
+                if delete_edge:
+                    if verbose:    
+                        print('removing reverse edge {} from graph'.format(reverse))   
+                    remove_edge(G, reverse, node_point)
+                
                 # Add new edges
                 if verbose:
                     print('adding first reverse edge {} to graph and index'.format((reverse[0], node_name, 0)))
-                add_new_edge(G, (reverse[0], node_name, 0), 
-                    segment(original_geom, endpoints(reverse_geometry)[0], node_point),
-                    attrs, sindex=sindex)
+                add_new_edge(
+                    G=G, 
+                    edge=(reverse[0], node_name, 0), 
+                    geometry=segment(reverse_geometry, endpoints(reverse_geometry)[0], node_point),
+                    attrs=attrs, 
+                    sindex=sindex)
+                
                 if verbose:
                     print('adding second reverse edge {} to graph and index'.format((node_name, reverse[1], 0)))
-                add_new_edge(G, (node_name, reverse[1], 0), 
-                    segment(original_geom, node_point, endpoints(reverse_geometry)[1]),
-                    attrs, sindex=sindex)
+                add_new_edge(
+                    G=G, 
+                    edge=(node_name, reverse[1], 0), 
+                    geometry=segment(reverse_geometry, node_point, endpoints(reverse_geometry)[1]),
+                    attrs=attrs, 
+                    sindex=sindex)
             else:
                 if verbose:
                     print('Edge {} and its reverse ({}) are not alinged.'.format(edge, reverse))
+
+
+def insert_node_at_edge_midpoint(g, edge, node_name, both_ways=True, delete_edge=True, verbose=False):
+    u, v, key = edge 
+    insert_node_along_edge(
+        G=g, 
+        edge=edge, 
+        node_point=midpoint(g[u][v][key]['geometry']), 
+        node_name=node_name,  
+        both_ways=both_ways,
+        delete_edge=delete_edge,
+        verbose=verbose)
 
 
 def search_sindex_items(sindex, search_bounds=None, bbox=False):
@@ -783,14 +825,16 @@ def make_node_pairs_with_lowest_cost_keys_along_route(route, g, cost='length'):
     cost: edge attribute storing cost (str)
     """
     edges = make_node_pairs_along_route(route)
-    edges_with_keys = []
-    for edge in edges:
-        u, v = edge
-        edges_with_keys.append((u, v, get_lowest_cost_key(u, v, g, cost)))
-    return edges_with_keys
+    if cost:
+        edges_with_keys = []
+        for edge in edges:
+            u, v = edge
+            edges_with_keys.append((u, v, get_lowest_cost_key(u, v, g, cost)))
+        return edges_with_keys
+    return edges
 
 
-def collect_route_attributes(route, G, summaries=None):
+def collect_route_attributes(route, G, cost='length', summaries=None):
     """Collect attributes of edges along a route defined by nodes.
 
     Parameters
@@ -799,6 +843,10 @@ def collect_route_attributes(route, G, summaries=None):
         List nodes forming route
     G : :class:`networkx.Graph`
         Graph containing route
+    cost : :obj:`str`
+        Edge attribute with cost that should be minimized along the route.
+        Used for choosing minumum-cost alterantive where there are multiple edges
+        between the same pair of nodes.
     summaries : :class:`OrderedDict`, optional, default = None
         Keys are names for summaries, uses as keys in ``collected_summaries``.\
         Values are tuples with the first value being function for calculating\
@@ -829,11 +877,11 @@ def collect_route_attributes(route, G, summaries=None):
         default_summaries.update(summaries)
 
     # Get data from edges along route
-    node_pairs = make_node_pairs_along_route(route)
+    edges = make_node_pairs_with_lowest_cost_keys_along_route(route, G, cost=cost)
     
     # Get edge data either from a graph or a dataframe
     if isinstance(G, MultiDiGraph) or isinstance(G, DiGraph):
-        route_data = [G.get_edge_data(u, v) for u,v, in node_pairs]
+        route_data = [G.get_edge_data(*edge) for edge in edges]
     elif isinstance(G, GeoDataFrame):
         edges = G
         def edge_data(edges, u, v):
@@ -848,35 +896,22 @@ def collect_route_attributes(route, G, summaries=None):
     collected_attributes = empty_array(len(route_data), attribute_fields)
     # Iterate through edges along route
     for i, edge in enumerate(route_data):
-        if edge is not None:
-            # If there are parallel edges, select shortest one
-            if len(edge) > 1 and isinstance(G, MultiDiGraph):
-                keys = []
-                lengths = []
-                for key, data in edge.items():
-                    keys.append(key)
-                    lengths.append(data['length'])
-                # Identify the shorest option
-                _, j = min((length, j) for (j, length) in enumerate(lengths))
-                # Remove all dictionary elements except that one
-                [route_data[i].pop(x) for x in list(route_data[i]) if x != keys[j]]
-            
+
+        if edge is not None:            
             # Collect each attribute
             for name, (_, attribute) in summaries.items():
                 if isinstance(G, MultiDiGraph):
-                    # Access whatever key remains in the edge dictionary
-                    for key in edge.keys():
-                        if isinstance(attribute, tuple):
-                            attributes = []
-                            for a in attribute:
-                                if a in edge[key]:
-                                    attributes.append(edge[key][a])
-                                else:
-                                    attributes.append(edge[key][None])
-                            collected_attributes[name][i] = tuple(attributes)
-                        else:
-                            if attribute in edge[key]:
-                                collected_attributes[name][i] = edge[key][attribute]
+                    if isinstance(attribute, tuple):
+                        attributes = []
+                        for a in attribute:
+                            if a in edge:
+                                attributes.append(edge[a])
+                            else:
+                                attributes.append(edge[None])
+                        collected_attributes[name][i] = tuple(attributes)
+                    else:
+                        if attribute in edge:
+                            collected_attributes[name][i] = edge[attribute]
                 elif isinstance(G, DiGraph):
                     if isinstance(attribute, tuple):
                         attributes = []
@@ -1188,8 +1223,11 @@ def subgraph_by_edge_attribute(G, attribute, values, simplify=True):
 ##### The following functions are for modeling turns within intersections #####
 ##### Docstrings needs to be fleshed out #####
 
-def explode_node(G, node):
+def explode_node(G, node, out_to_out_edges=False):
     """Create non-geometric edges between all 'in' and 'out' edges at each node
+
+    If out_to_out_edges is True, additional edges are built between all 'out' nodes to ensure
+    that no 'out' is a dead end.
     """
     
     # Find all entering edges
@@ -1208,15 +1246,8 @@ def explode_node(G, node):
         new_node = '{}_{}{}'.format(node, direction, counter)
         G.add_node(new_node, **node_attributes)
         # Add a new edge
-        u, v, key = edge
-        # edge_attributes = G.get_edge_data(*edge)
-        
-        try:
-            edge_attributes = G[u][v][key]
-        except:
-            print(G.has_edge(u, v, key))
-            print(edge)
-        
+        u, v, key = edge        
+        edge_attributes = G[u][v][key]        
         if direction == 'in': 
             new_edge = (u, new_node, key)
         elif direction == 'out':
@@ -1423,6 +1454,10 @@ def create_intersection_edges(G, straight_angle=20, level_field=None, default_le
     """Add non-geometric edges to represent turns at intersections
     """
     G = G.copy()
+    # Store parent edge IDs as attributes for later recall
+    for edge in G.edges(keys=True):
+        u, v, key = edge
+        G[u][v][key]['parent'] = edge
     # Split self-looping edges so that their ends are distinguishable
     G = split_self_loops(G)
     # Explode each node into sub-edges
@@ -1487,14 +1522,29 @@ def shortest_path_with_intersection_edges(g, o, d, cost, return_shortest_path_co
         d_candidates = [d]
 
     candidate_pairs = [(o,d) for o in o_candidates for d in d_candidates]
-    shortest_paths = [nx.shortest_path(g, o, d, cost) for o, d in candidate_pairs]
-    costs = [nx.path_weight(g, path, cost) for path in shortest_paths]
+
+    # path_availability = [nx.has_path(g, o, d) for o, d in candidate_pairs]
+    # candidate_pairs = [pair for (pair, path_available) in zip(candidate_pairs, path_availability) if path_available]
+
+    shortest_paths = []
+    costs = []
+    for sub_o, sub_d in candidate_pairs:
+        try:
+            shortest_path = nx.shortest_path(g, sub_o, sub_d, weight=cost)
+            shortest_paths.append(shortest_path)
+            path_cost = nx.path_weight(g, shortest_path, cost)
+            costs.append(path_cost)
+        except:
+            shortest_paths.append([])
+            costs.append(np.nan)
     
-    if not return_shortest_path_cost:
-        return [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0]
-    
+    shortest_path = [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0]
+
+    if return_shortest_path_cost:
+        return shortest_path, min(costs)
+
     else:
-        return [shortest_path for _, shortest_path in sorted(zip(costs, shortest_paths))][0], min(costs)
+        return shortest_path
 
 
 # Convert segments to a graph
@@ -2171,23 +2221,41 @@ def _attach_turn_ids_to_edges(edges, turns):
     edges['turn_v'] = edges['turn_v'].fillna(edges['v'])
     return edges
 
-def correct_edge_direction(edges, nodes, precision=6):
-    # Operate on a copy
-    edges = edges.copy()
-    # Attach u points
-    edges = edges.merge(nodes['geometry'].rename('u_point'), left_on = 'u', right_index=True)
-    # Initiate list to store corrected geometries
-    geometries = []
-    for edge in edges.itertuples():
-        u_point = edge.u_point
-        u_endpoint = endpoints(edge.geometry)[0]
-        # Check geometric equivalence
-        if u_point.almost_equals(u_endpoint, precision):
-            geometries.append(reverse_linestring(edge.geometry))
-        else:
-            geometries.append(edge.geometry)
-    # Set the edge geometry to the corrected version
-    edges['geometry'] = geometries
-    # Remove points column
-    edges = edges.drop(columns=['u_point'])
-    return edges
+def correct_edge_direction(g=None, edges=None, nodes=None, precision=6, verbose=False):
+    corrections = 0
+    
+    if g:
+        g = g.copy()
+        for u, v, key, data in g.edges(keys=True, data=True):
+            if not g.nodes[u]['geometry'].almost_equals(endpoints(data['geometry'])[0], 6):
+                if verbose:
+                    print(f'Correcting direction of ({u}, {v}, {key})')
+                g[u][v][key]['geometry'] = reverse_linestring(data['geometry'])
+                corrections += 1                
+        if verbose:
+            print(f'Corrected {corrections} edges')
+        return g
+    
+    if edges is not None and nodes is not None:
+        # Operate on a copy of edges
+        edges = edges.copy()
+        # Join nodes as 'u_points' with edges by 'u' 
+        edges = edges.merge(nodes['geometry'].rename('u_point'), left_on = 'u', right_index=True)
+        # Initiate list to store corrected geometries
+        geometries = []
+        for edge in edges.itertuples():
+            # For each edge, check whether first point in geometry is the same as the u_point
+            if not edge.u_point.almost_equals(endpoints(edge.geometry)[0], precision):
+                if verbose:
+                    print(f'Correcting direction of ({edge.u}, {edge.v}, {edge.key})')
+                geometries.append(reverse_linestring(edge.geometry))
+                corrections += 1
+            else:
+                geometries.append(edge.geometry)
+        # Set the edge geometry to the corrected version
+        edges['geometry'] = geometries
+        # Remove points column
+        edges = edges.drop(columns=['u_point'])
+        if verbose:
+            print(f'Corrected {corrections} edges')
+        return edges
