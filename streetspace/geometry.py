@@ -656,7 +656,7 @@ def gdf_spaced_points_along_lines(gdf, spacing, centered=False, return_lin_refs=
     return points_gdf
 
 
-def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
+def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0, return_lin_refs=False):
     """Split LineStrings in a GeoDataFrame into equal-length segments.
 
     Attributes in accompanying columns are copied to all children of each
@@ -684,12 +684,15 @@ def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
         centered = 'space'
 
     # initiate new dataframe to hold segments
-    segments = gpd.GeoDataFrame(data=None, columns=gdf.columns, 
-                                geometry = 'geometry', crs=gdf.crs)
+    # segments = gpd.GeoDataFrame(data=None, columns=gdf.columns, 
+    #                             geometry = 'geometry', crs=gdf.crs)
+    segments = []
+
     for i, segment in gdf.iterrows():
-        points = spaced_points_along_line(segment['geometry'], 
+        points, lin_refs = spaced_points_along_line(segment['geometry'], 
                                           segment_length, 
-                                          centered = centered)
+                                          centered = centered,
+                                          return_lin_refs=True)
         points = points[1:] # exclude the starting point
         # cut the segment at each point
         segment_geometries = split_line_at_points(segment['geometry'], points)
@@ -708,11 +711,16 @@ def gdf_split_lines(gdf, segment_length, centered = False, min_length = 0):
         segment_records = gpd.GeoDataFrame(
             data=[segment]*len(segment_geometries), columns=gdf.columns, 
             geometry = 'geometry', crs=gdf.crs)
+        if return_lin_refs:
+            segment_records['lin_ref'] = lin_refs
         # replace the geometry for these copied records with the segment geometry
         segment_records['geometry'] = segment_geometries
         # add new segments to full list
-        segments = segments.append(segment_records, ignore_index=True)
-    return segments
+        # segments = segments.append(segment_records, ignore_index=True)
+        segments.append(segment_records)
+    
+    # return segments
+    return pd.concat(segments, axis=0, ignore_index=True)
 
 
 def gdf_bbox(gdf):
@@ -1996,5 +2004,57 @@ def gdf_cast_singlpart_geometry_to_multipart(gdf, geometry_column='geometry'):
     elif type(gdf.iloc[0][geometry_column]) in [Polygon, MultiPolygon]:
         gdf[geometry_column] = [MultiPolygon([feature]) if type(feature) == Polygon else feature for feature in gdf[geometry_column]]
     return gdf
+
+
+def intersection_of_lines_vectorized(line_a_start, line_a_end, line_b_start, line_b_end, constrain_on_a=True, constrain_on_b=True):
+    def line_intersect(a1, a2, b1, b2):
+        """
+        From https://www.py4u.net/discuss/15536
+        """
+        T = np.array([[0, -1], [1, 0]])
+        da = np.atleast_2d(a2 - a1)
+        db = np.atleast_2d(b2 - b1)
+        dp = np.atleast_2d(a1 - b1)
+        dap = np.dot(da, T)
+        denom = np.sum(dap * db, axis=1)
+        num = np.sum(dap * dp, axis=1)
+        # Ignore dividing by 0 and multiplying by nan
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return np.atleast_2d(num / denom).T * db + b1
+
+    intersections = line_intersect(line_a_start, line_a_end, line_b_start, line_b_end)
+    intersections = pd.DataFrame(intersections).rename(columns={0:'x',1:'y'})
+
+    # Remove cases where the intersection isn't on line a or b
+    if constrain_on_a or constrain_on_b:
+        # Add line start and end coordinates to the dataframe
+        intersections = pd.concat([
+            intersections,
+            pd.DataFrame(line_a_start, columns=['line_a_start_x', 'line_a_start_y']),
+            pd.DataFrame(line_a_end, columns=['line_a_end_x', 'line_a_end_y']),
+            pd.DataFrame(line_b_start, columns=['line_b_start_x', 'line_b_start_y']),
+            pd.DataFrame(line_b_end, columns=['line_b_end_x', 'line_b_end_y']),
+        ], axis=1)
+
+        if constrain_on_a:
+            intersections = intersections[
+                (intersections.x >= intersections[['line_a_start_x','line_a_end_x']].min(axis=1)) & 
+                (intersections.x <= intersections[['line_a_start_x','line_a_end_x']].max(axis=1)) & 
+                (intersections.y >= intersections[['line_a_start_y','line_a_end_y']].min(axis=1)) & 
+                (intersections.y <= intersections[['line_a_start_y','line_a_end_y']].max(axis=1))].copy()
+
+        if constrain_on_b:
+            intersections = intersections[
+                (intersections.x >= intersections[['line_b_start_x','line_b_end_x']].min(axis=1)) & 
+                (intersections.x <= intersections[['line_b_start_x','line_b_end_x']].max(axis=1)) & 
+                (intersections.y >= intersections[['line_b_start_y','line_b_end_y']].min(axis=1)) & 
+                (intersections.y <= intersections[['line_b_start_y','line_b_end_y']].max(axis=1))].copy()
+
+    return intersections[['x','y']]
+            
+
+        
+
+
 
 
