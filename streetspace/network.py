@@ -756,7 +756,7 @@ def route_between_points(points, G, additional_summaries=None, summarize_links=F
     
     # Add weight sum if weights are used for routing
     
-    if weight is not 'length':
+    if weight != 'length':
         # Calculate weighted length attributes for all edges
         wgt_lens = {}
         for edge in G.edges(data=True, keys=True):
