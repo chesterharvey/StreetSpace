@@ -1900,7 +1900,7 @@ def quadrat_cut_gdf(gdf, width):
     return gdf
 
 
-def identify_nearest_points(gdf_a, gdf_b, b_column, merge_original=False):
+def identify_nearest_points(gdf_a, gdf_b, b_column=None, dist_as_int=True, merge_original=False):
     """Identify the nearest point in `gdf_b` for each point in `gdf_a`.
 
     Value in `b_column` is reported for each row in `gdf_a`.
@@ -1911,14 +1911,20 @@ def identify_nearest_points(gdf_a, gdf_b, b_column, merge_original=False):
     nB = np.array(list(zip(gdf_b.geometry.x, gdf_b.geometry.y)) )
     btree = cKDTree(nB)
     dist, idx = btree.query(nA,k=1)
-    df = pd.DataFrame.from_dict(
-        {
-            'distance': dist.astype(int),
-            b_column : gdf_b.loc[idx, b_column].values
-        })
+    if dist_as_int:
+        dist = dist.astype(int)
+    cols = {'distance': dist}
+    if b_column:
+        cols[b_column] = gdf_b.loc[idx, b_column].values
+
+    df = pd.DataFrame.from_dict(cols)
     if merge_original:
         df = gdf_a.merge(df, left_index=True, right_index=True)
-    return df
+    # Return as a series if there's only one column
+    if len(df.columns) == 1:
+        return df.distance
+    else:
+        return df
 
 
 def aerial_count_interpolation(source_gdf, count_field, dest_gdf):
