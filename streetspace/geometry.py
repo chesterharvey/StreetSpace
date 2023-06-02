@@ -1593,13 +1593,13 @@ def singlepart(gdf):
     for row in gdf.itertuples():
         if isinstance(row.geometry, (MultiPoint, MultiLineString, MultiPolygon)):
             # Divide into individual shapes
-            shapes = [x for x in row.geometry]
+            shapes = [x for x in row.geometry.geoms]
             # Make a new row for each individual shape
             for shape in shapes:
                 new_row = row._asdict()
                 new_row['geometry'] = shape
                 new_row.pop('Index', None)
-                gdf = gdf.append(new_row, ignore_index=True)
+                gdf = pd.concat([gdf, gpd.GeoDataFrame([new_row], geometry='geometry', crs=gdf.crs)], ignore_index=True)
             # Get current index of row based on the static index
             current_index = gdf.loc[gdf[static_index] == row._asdict()[static_index]].index[0]
             # Drop original row
