@@ -26,6 +26,7 @@ from time import time
 from scipy.spatial import cKDTree
 from sklearn.neighbors import BallTree  
 from warnings import warn
+from tobler.area_weighted import area_interpolate
 
 from .utils import *
 
@@ -1927,36 +1928,56 @@ def identify_nearest_points(gdf_a, gdf_b, b_column=None, dist_as_int=True, merge
         return df
 
 
-def aerial_count_interpolation(source_gdf, count_field, dest_gdf):
-    """Interpolate counts from `source_gdf` to `dest_gdf` polygons
+# def aerial_count_interpolation(source_gdf, count_field, dest_gdf):
+#     """Interpolate counts from `source_gdf` to `dest_gdf` polygons
     
-    `source_gdf` : geodataframe with polygon geometries and a numeric field with counts
-    `count_field` : field in `source_gdf` with counts
-    `dest_gdf` : geodataframe with polygon geometries into which counts will be interpolated
+#     `source_gdf` : geodataframe with polygon geometries and a numeric field with counts
+#     `count_field` : field in `source_gdf` with counts
+#     `dest_gdf` : geodataframe with polygon geometries into which counts will be interpolated
 
-    The function interpolates counts based on the proportion of overlap between `source_gdf` and
-    `dest_gdf` polygons.
+#     The function interpolates counts based on the proportion of overlap between `source_gdf` and
+#     `dest_gdf` polygons.
 
-    """
-    # Specify IDs for each input dataframe
-    source_gdf['ai_source_index'] = range(0, len(source_gdf))
-    dest_gdf['ai_dest_index'] = range(0, len(dest_gdf))
-    # Calculate areas within the source dataframe
-    source_gdf['ai_source_area'] = source_gdf.geometry.area
-    # Union the shapes
-    union_df = gpd.overlay(source_gdf, dest_gdf, how='union')
-    # Calculate areas within the unioned parts
-    union_df['ai_union_area'] = union_df.geometry.area
-    # Estimate count for each unioned part
-    union_df['ai_union_count'] = union_df[count_field] / union_df['ai_source_area'] * union_df['ai_union_area']
-    # Sum up parts for destination ids
-    result_df = union_df.groupby('ai_dest_index').agg({'ai_union_count':sum})
-    # Add results back onto destination dataframe
-    dest_gdf = gpd.GeoDataFrame(dest_gdf.merge(result_df, on='ai_dest_index'), geometry='geometry', crs=dest_gdf.crs)
-    # Rename and drop columns
-    dest_gdf[count_field] = dest_gdf['ai_union_count']
-    dest_gdf = dest_gdf.drop(columns=['ai_dest_index','ai_union_count'])
-    return dest_gdf
+#     """
+#     # Specify IDs for each input dataframe
+#     source_gdf['ai_source_index'] = range(0, len(source_gdf))
+#     dest_gdf['ai_dest_index'] = range(0, len(dest_gdf))
+#     # Calculate areas within the source dataframe
+#     source_gdf['ai_source_area'] = source_gdf.geometry.area
+#     # Union the shapes
+#     union_df = gpd.overlay(source_gdf, dest_gdf, how='union')
+#     # Calculate areas within the unioned parts
+#     union_df['ai_union_area'] = union_df.geometry.area
+#     # Estimate count for each unioned part
+#     union_df['ai_union_count'] = union_df[count_field] / union_df['ai_source_area'] * union_df['ai_union_area']
+#     # Sum up parts for destination ids
+#     result_df = union_df.groupby('ai_dest_index').agg({'ai_union_count':sum})
+#     # Add results back onto destination dataframe
+#     dest_gdf = gpd.GeoDataFrame(dest_gdf.merge(result_df, on='ai_dest_index'), geometry='geometry', crs=dest_gdf.crs)
+#     # Rename and drop columns
+#     dest_gdf[count_field] = dest_gdf['ai_union_count']
+#     dest_gdf = dest_gdf.drop(columns=['ai_dest_index','ai_union_count'])
+#     return dest_gdf
+
+
+def area_weighted_interpolation(source_gdf, target_gdf, count_columns, column_prefix = None):
+    count_columns = listify(count_columns)
+    
+    interpolation = area_interpolate(
+        source_df=source_gdf,  
+        target_df=target_gdf,
+        extensive_variables=count_columns,
+        allocate_total=False,
+    )
+    output_gdf = target_gdf.copy()
+    
+    for col in count_columns:
+        new_col = col
+        if column_prefix:
+            new_col = f'{column_prefix}_{col}'
+        output_gdf[new_col] = interpolation[col].tolist()
+
+    return output_gdf
 
 
 def gdf_3d_to_2d(gdf):
