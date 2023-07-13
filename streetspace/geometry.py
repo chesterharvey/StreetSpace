@@ -2132,3 +2132,8 @@ def buffer_gdf(gdf, buffer_distance):
     gdf = gdf.copy()
     gdf.geometry = gdf.buffer(buffer_distance)
     return gdf
+
+
+def count_points_within_polygons(points, polygons, polygon_index, count_column):
+    points_per_polygon = pd.DataFrame(gpd.sjoin(polygons, points).groupby(polygon_index).size().rename(count_column))
+    return polygons.merge(points_per_polygon.reset_index(), on=polygon_index, how='left')
