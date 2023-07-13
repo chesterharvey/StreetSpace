@@ -1887,10 +1887,8 @@ def quadrat_cut_gdf(gdf, width):
         # Convert row to a dictionary, so it's mutable
         row = row._asdict()
         # Split the geometry
-        split_geometry = ox.quadrat_cut_geometry(row['geometry'], quadrat_width=width)
-        # Convert to a list
-        split_geometry = [x for x in split_geometry]
-        for geometry in split_geometry:
+        split_geometry = ox.utils_geo._quadrat_cut_geometry(row['geometry'], quadrat_width=width)
+        for geometry in split_geometry.geoms:
             _row = row.copy()
             _row['geometry'] = geometry
             split_rows.append(_row) 
@@ -1960,7 +1958,7 @@ def identify_nearest_points(gdf_a, gdf_b, b_column=None, dist_as_int=True, merge
 #     return dest_gdf
 
 
-def area_weighted_interpolation(source_gdf, target_gdf, count_columns, column_prefix = None):
+def area_weighted_interpolation(source_gdf, target_gdf, count_columns, prefix=None, suffix=None):
     count_columns = listify(count_columns)
     
     interpolation = area_interpolate(
@@ -1973,8 +1971,10 @@ def area_weighted_interpolation(source_gdf, target_gdf, count_columns, column_pr
     
     for col in count_columns:
         new_col = col
-        if column_prefix:
-            new_col = f'{column_prefix}_{col}'
+        if prefix:
+            new_col = f'{prefix}_{col}'
+        if suffix:
+            new_col = f'{col}_{suffix}'
         output_gdf[new_col] = interpolation[col].tolist()
 
     return output_gdf
@@ -2126,3 +2126,9 @@ def nearest_neighbor(left_gdf, right_gdf, k_neighbors=1, return_left_columns=Tru
     closest = closest.sort_values('left_index').reset_index()
     
     return closest
+
+
+def buffer_gdf(gdf, buffer_distance):
+    gdf = gdf.copy()
+    gdf.geometry = gdf.buffer(buffer_distance)
+    return gdf
