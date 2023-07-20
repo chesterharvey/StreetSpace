@@ -650,3 +650,98 @@ def get_continuous_cmap(hex_list, float_list=None):
         cdict[col] = col_list
     cmp = LinearSegmentedColormap('my_cmp', segmentdata=cdict, N=256)
     return cmp
+
+
+def parse_tables_from_census_reporter(dir, geoid_level='auto', drop_error_cols=True, column_suffix=None):
+    """Parses csv exports from CensusReporter.com using metadata jsons to set column names
+
+    Tables from all folders within the specified directory will be merged into a single output.
+
+    dir: directory containing folders, each with a csv and json from CensusReporter
+
+    geoid_level: int, 'auto', or None
+    Intended to filter out higher-level geoids mixed into the same output table, such as states among tracts
+    int will explicitly specify length of geoids to retain
+    'auto' will retain geoids that are the modal length
+    None will retail all geoids
+
+    drop_error_cols: bool
+    If True, will drop columns for margins of error
+
+    column_suffix: string or list of strings associated with mettdata attributes to use as suffixes for column names
+    Can include any available metadata field for the release or table:
+    'id', 'years', 'name', 'table', 'title', 'denominator_column_id', 'universe' 
+    """
+
+    dfs = []
+    
+    # loop through subdirectories
+    for subdir in [x[0] for x in os.walk(dir)]:
+        # parse csv and json files in each subdir
+        subdir_files = os.listdir(subdir)
+        
+        try:
+            
+            # look for csv and json files
+            csv_file = [x for x in subdir_files if x[-3:] == 'csv'][0]
+            json_file = [x for x in subdir_files if x[-4:] == 'json'][0]
+            # read them
+            df = pd.read_csv(os.path.join(subdir, csv_file))
+            with open(os.path.join(subdir, json_file)) as json_file:
+                metadata = json.load(json_file)
+    
+            # get table code
+            table = list(metadata['tables'].keys())[0]
+                
+            # store table metadata
+            metadata_fields = {
+                'id':metadata['release']['id'],
+                'years':metadata['release']['years'],
+                'name':metadata['release']['name'],
+                'title':metadata['tables'][table]['title'],
+                'denominator_column_id':metadata['tables'][table]['denominator_column_id'],
+                'universe':metadata['tables'][table]['universe'],
+                'table':table,
+            }
+    
+            column_names = {a:b['name'] for a, b in metadata['tables'][table]['columns'].items()}
+    
+            # restrict to a certain geoid level
+            if geoid_level:
+                if geoid_level == 'auto':
+                    geoid_level = int(df.geoid.str.len().mode().iloc[0])
+                df = df[df.geoid.str.len() == geoid_level]
+            
+            # add suffixes to column names
+            if column_suffix:
+                if not isinstance(column_suffix, list):
+                    column_suffix = [column_suffix]
+                column_suffix_values = [metadata_fields[x] for x in column_suffix]
+                column_suffix_values = '_'.join(column_suffix_values)
+                column_names = {a:f'{b}_{column_suffix_values}' for a, b in column_names.items()}
+                
+            # Rename column names
+            df = df.rename(columns=column_names)
+
+            # Remove colons from column names
+            df.columns = [x.replace(':','') for x in df.columns]
+    
+            # Remove error columns
+            if drop_error_cols:
+                df = df.drop(columns=[x for x in df.columns if ', Error' in x])
+    
+            # Set index to geoid
+            df = df.set_index('geoid')
+    
+            dfs.append(df)
+            
+        except IndexError:
+            pass
+
+    # return dfs
+    df = pd.concat(dfs, axis=1)
+
+    # drop duplicate columns
+    df = df.T.drop_duplicates().T
+
+    return df
