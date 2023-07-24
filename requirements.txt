@@ -11,3 +11,4 @@ fuzzywuzzy
 mplleaflet
 scipy
 tobler
+python-Levenshtein
