@@ -10,6 +10,8 @@ import subprocess
 import collections
 import sys
 from matplotlib.colors import LinearSegmentedColormap
+import os
+import json
 
 def listify(x):
     """Puts non-list objects into a list. 
@@ -679,12 +681,11 @@ def parse_tables_from_census_reporter(dir, geoid_level='auto', drop_error_cols=T
     for subdir in [x[0] for x in os.walk(dir)]:
         # parse csv and json files in each subdir
         subdir_files = os.listdir(subdir)
-        
         try:
-            
             # look for csv and json files
-            csv_file = [x for x in subdir_files if x[-3:] == 'csv'][0]
-            json_file = [x for x in subdir_files if x[-4:] == 'json'][0]
+            csv_file = [x for x in subdir_files if x[-4:] == '.csv'][0]
+            json_file = [x for x in subdir_files if x[-5:] == '.json'][0]
+
             # read them
             df = pd.read_csv(os.path.join(subdir, csv_file))
             with open(os.path.join(subdir, json_file)) as json_file:
@@ -704,7 +705,22 @@ def parse_tables_from_census_reporter(dir, geoid_level='auto', drop_error_cols=T
                 'table':table,
             }
     
-            column_names = {a:b['name'] for a, b in metadata['tables'][table]['columns'].items()}
+            # build column names based on indent
+            column_names = {}
+            # indent_level = 0
+            indent_prefixes = {}
+            for a, b in metadata['tables'][table]['columns'].items():
+                # set indent prefix
+                indent_level = b['indent']
+                indent_prefixes[indent_level] = b['name'].replace(':','_').strip('_')
+                # build index prefix
+                indent_prefix = [indent_prefixes[x] for x in range(1, indent_level)]
+                indent_prefix = '_'.join(indent_prefix)
+                if indent_prefix:
+                    indent_prefix = indent_prefix.ljust(1)
+                # build column name
+                column_name = b['name']
+                column_names[a] = f'{indent_prefix}_{column_name}'.strip('_')
     
             # restrict to a certain geoid level
             if geoid_level:
