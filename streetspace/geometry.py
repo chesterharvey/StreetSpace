@@ -1958,17 +1958,28 @@ def identify_nearest_points(gdf_a, gdf_b, b_column=None, dist_as_int=True, merge
 #     return dest_gdf
 
 
-def area_weighted_interpolation(source_gdf, target_gdf, count_columns, prefix=None, suffix=None):
-    count_columns = listify(count_columns)
+def area_weighted_interpolation(source_gdf, target_gdf, extensive_variables=None, intensive_variables=None, prefix=None, suffix=None):
+    if extensive_variables:
+        extensive_variables = listify(extensive_variables)
+    if intensive_variables:
+        intensive_variables = listify(intensive_variables)
     
     interpolation = area_interpolate(
         source_df=source_gdf,  
         target_df=target_gdf,
-        extensive_variables=count_columns,
+        extensive_variables=extensive_variables,
+        intensive_variables=intensive_variables,
         allocate_total=False,
     )
     output_gdf = target_gdf.copy()
     
+    if not extensive_variables:
+        count_columns = intensive_variables
+    elif not intensive_variables:
+        count_columns = extensive_variables
+    else:
+        count_columns = intensive_variables + extensive_variables
+
     for col in count_columns:
         new_col = col
         if prefix:
