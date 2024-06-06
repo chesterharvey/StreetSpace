@@ -43,12 +43,9 @@ def vertices_to_points(geometry):
     :obj:`list`
         List of :class:`shapely.geometry.Point`.
     """
-    if isinstance(geometry, Polygon):
-        xs, ys = geometry.exterior.coords.xy
-        xs = xs[:-1] # Exclude redundant closing vertex
-        ys = ys[:-1]
-    elif isinstance(geometry, LineString):
-        xs, ys = geometry.coords.xy
+    coords = sh.get_coordinates(geometry)
+    xs = coords[:,0]
+    ys = coords[:,1]
     points = [sh.geometry.Point(xy[0], xy[1]) for xy in list(zip(xs, ys))]
     return points
 
@@ -1440,21 +1437,14 @@ def closest_point_along_line(point, line, return_linear_reference=False):
         return point
 
 
-def vertices_to_points(shape):
-    """Return vertices of a shape as a list of points.
-
-    ``shape`` must be a Shapely geometry. 
-    """
-    return [Point(coords) for coords in np.array(shape)]
-
-
 def directed_hausdorff(a, b):
     """Calculate the directed Hausdorff distance from shape a to shape b.
 
     ``a`` and ``b`` must be Shapely geometries
     """
     a_nodes = vertices_to_points(a)
-    b_match_points = [closest_point_along_line(node, b) for node in a_nodes]
+    # b_match_points = [closest_point_along_line(node, b) for node in a_nodes]
+    
     dists = [a_node.distance(b_point) for a_node, b_point in zip(a_nodes, b_match_points)]
     return max(dists)
 
@@ -1959,6 +1949,9 @@ def identify_nearest_points(gdf_a, gdf_b, b_column=None, dist_as_int=True, merge
 
 
 def area_weighted_interpolation(source_gdf, target_gdf, extensive_variables=None, intensive_variables=None, prefix=None, suffix=None):
+    
+
+
     if extensive_variables:
         extensive_variables = listify(extensive_variables)
     if intensive_variables:
